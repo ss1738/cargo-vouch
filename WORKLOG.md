@@ -375,3 +375,15 @@ Authoritative corpus_v2 (post both fixes): 5 UNGUARDED, 4 VERIFIED, 1 INCONCLUSI
 0 hard BUG. Every new type shape (slice/tuple/Option/Vec) verifies correctly on unseen
 AI code. The two fixes are the real story: cargo-aiv caught two of its own false
 verdicts under fresh input — the dual-mode severity discipline held up and got sharper.
+
+## Week 2 — end-to-end integration tests + PID-namespaced temp dirs
+
+Added cli/tests/integration.rs: 6 tests that run the actual binary and assert
+verdict+exit code (BUG→1, VERIFIED→0, UNGUARDED→0, PROVEN/VIOLATED, INCONCLUSIVE→2,
+selftest PASS). #[ignore]d (need Kani) so the fast ci.yml skips them; verify.yml runs
+`cargo test -- --ignored` where Kani is present.
+
+Writing them exposed a real robustness gap: the single-file temp dir was
+`cargo-aiv-{name}-{slot}`, so two concurrent processes verifying different files that
+both define `fn f` collided (cargo test runs tests in parallel → 3 failed). FIX:
+namespace the temp dir by process id too. All 6 e2e green; 15 unit tests green.
