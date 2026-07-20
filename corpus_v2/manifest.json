@@ -1,0 +1,62 @@
+[
+  {
+    "file": "01_sum_slice.rs",
+    "name": "sum_slice",
+    "ai_says_safe": true,
+    "note": "Uses iterator sum() which handles overflow properly with wrapping."
+  },
+  {
+    "file": "02_product_of_tuple.rs",
+    "name": "product_of_tuple",
+    "ai_says_safe": false,
+    "note": "Multiplication can overflow for large integers."
+  },
+  {
+    "file": "03_find_max.rs",
+    "name": "find_max",
+    "ai_says_safe": true,
+    "note": "Handles edge cases well, returns None for empty slices."
+  },
+  {
+    "file": "04_factorial.rs",
+    "name": "factorial",
+    "ai_says_safe": false,
+    "note": "Can overflow for n > 12, doesn't handle negative values."
+  },
+  {
+    "file": "05_swap_tuple.rs",
+    "name": "swap_tuple",
+    "ai_says_safe": true,
+    "note": "Simply swaps the tuple elements; safe operation."
+  },
+  {
+    "file": "06_is_even.rs",
+    "name": "is_even",
+    "ai_says_safe": true,
+    "note": "Modulo operation is safe for all i32 inputs."
+  },
+  {
+    "file": "07_vec_mean.rs",
+    "name": "vec_mean",
+    "ai_says_safe": false,
+    "note": "Summation can overflow for large vectors of large numbers."
+  },
+  {
+    "file": "08_increment_option.rs",
+    "name": "increment_option",
+    "ai_says_safe": false,
+    "note": "Adding 1 to i32 can overflow if the option contains i32::MAX."
+  },
+  {
+    "file": "09_abs.rs",
+    "name": "abs",
+    "ai_says_safe": false,
+    "note": "Negating i32::MIN will overflow."
+  },
+  {
+    "file": "10_to_positive.rs",
+    "name": "to_positive",
+    "ai_says_safe": true,
+    "note": "Filters non-positive numbers, safely handles Option."
+  }
+]
