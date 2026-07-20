@@ -289,3 +289,10 @@ Tuple RETURNS already worked (return is discarded in default mode; bound as
 
 Added 4 build()/map_input() unit tests (tuple binding, slice by-ref, postcondition
 result binding, &str rejection). Suite now 11 green. fmt + clippy -D warnings clean.
+
+## Week 2 — v0.2.0 release prep
+
+Bumped 0.1.0 → 0.2.0, sharpened the crate description (now mentions --prove + batch).
+Wrote CHANGELOG.md documenting the release: --prove, batch mode, INCONCLUSIVE,
+slices, tuples, readable counterexamples, tests + CI, the counterexample parser fix.
+`cargo publish --dry-run` green (Packaged 6 files, 38.3KiB, verify-compiled clean).
