@@ -64,3 +64,25 @@ AI-"correct" fns are real panics on adversarial input (i32::MAX) but a user may 
 this is the core quality mechanism to build next.
 
 **Reproduce:** `python3 gen_harness.py && cd spike2 && cargo kani`
+
+### Day 1 (cont.) — precondition-gap classifier (the anti-cry-wolf engine)  ✅ item 3 done
+
+**Done:** `classify.py` — verifies each fn in TWO modes (strict: all of i32; realistic:
+values ∈ [-1000,1000]) and classifies:
+- strict FAIL + realistic FAIL → **BUG** (reachable on ordinary input)
+- strict FAIL + realistic PASS → **UNGUARDED** (overflow only at i32::MAX/MIN — downgrade)
+- strict PASS → **VERIFIED**
+
+**Corpus result:** 5 real BUGS · 3 UNGUARDED · 3 VERIFIED.
+The 3 UNGUARDED (sum_vec, increment_all, square_sum) are exactly the fns the AI labelled
+"correct" and the naive verifier screamed BUG about — now correctly downgraded, while
+empty-vec unwraps / divide-by-zero / NaN stay flagged as real. **The precondition-gap
+trust-killer is solved in v0.** (Note: `average` NaN-on-empty is flagged as BUG — arguably
+a silent-bad-value defect, not a panic; a judgment call to expose in the product.)
+
+**Week 1 status: all 3 planned items DONE on Day 1** — corpus + spike, auto-harness
+generator, precondition classifier. The technical core is de-risked and working end to end.
+**Reproduce:** `python3 classify.py`
+
+**Next (Week 2, MVP):** port harness-gen to Rust/`syn`; counterexample→source-line mapping;
+package as `cargo install cargo-aiv`; add the sanity/meta-soundness mode; widen corpus.
