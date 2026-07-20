@@ -25,6 +25,11 @@ jobs:
       - name: Install cargo-aiv
         run: cargo install --path cli
 
+      # Guard against false-green: fail loudly if Kani isn't wired up, rather than
+      # silently "passing" every function.
+      - name: Self-test the verifier
+        run: cargo-aiv --selftest
+
       # Fails the job (exit 1) if any function in verify/ has a reachable panic.
       - name: Prove verify/ is panic-free
         run: cargo-aiv verify/*.rs
