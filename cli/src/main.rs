@@ -18,8 +18,19 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-const BOUND: usize = 3;
-const UNWIND: u32 = 5;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+
+// Bound (max Vec/slice length) and unwind (loop unroll depth) are user-tunable via
+// --bound / --unwind, set once in main() before any verification. RANGE stays const:
+// it defines the strict-vs-realistic split that the UNGUARDED classification rests on.
+static BOUND_A: AtomicUsize = AtomicUsize::new(3);
+static UNWIND_A: AtomicU32 = AtomicU32::new(5);
+fn bound() -> usize {
+    BOUND_A.load(Ordering::Relaxed)
+}
+fn unwind() -> u32 {
+    UNWIND_A.load(Ordering::Relaxed)
+}
 const RANGE: i64 = 1000;
 /// Per-mode wall-clock cap. Kani can run for minutes on adapter-heavy functions;
 /// past this we report ⏱️ INCONCLUSIVE rather than hang a CI job forever.
@@ -79,10 +90,11 @@ fn scalar_int(ty: &syn::Type) -> Option<String> {
 /// A bounded symbolic `Vec<et>` binding line. `mutable` makes it `let mut`.
 fn vec_binding(name: &str, et: &str, realistic: bool, mutable: bool) -> String {
     let m = if mutable { "mut " } else { "" };
+    let bound = bound();
     if realistic && et == "i32" {
-        format!("    let {m}{name}: Vec<i32> = any_bounded_vec_ranged({BOUND});")
+        format!("    let {m}{name}: Vec<i32> = any_bounded_vec_ranged({bound});")
     } else {
-        format!("    let {m}{name}: Vec<{et}> = any_bounded_vec::<{et}>({BOUND});")
+        format!("    let {m}{name}: Vec<{et}> = any_bounded_vec::<{et}>({bound});")
     }
 }
 
@@ -206,8 +218,9 @@ fn build(src: &str, realistic: bool, postcond: Option<&str>) -> Result<(String, 
         ),
         None => format!("    let _ = {name}({call});"),
     };
+    let uw = unwind();
     let lib = format!(
-        "{}\n\n{}\n\n#[kani::proof]\n#[kani::unwind({UNWIND})]\nfn verify_{name}() {{\n{}\n{}\n}}\n",
+        "{}\n\n{}\n\n#[kani::proof]\n#[kani::unwind({uw})]\nfn verify_{name}() {{\n{}\n{}\n}}\n",
         helper(),
         src.trim(),
         inputs.join("\n"),
@@ -625,7 +638,10 @@ fn print_detailed(name: &str, v: &Verdict) -> i32 {
     println!();
     match v {
         Verdict::Verified => {
-            println!("{G}{B}✅ VERIFIED{X}  `{name}` — panic-free for Vec≤{BOUND}, |val|≤{RANGE}.");
+            println!(
+                "{G}{B}✅ VERIFIED{X}  `{name}` — panic-free for Vec≤{}, |val|≤{RANGE}.",
+                bound()
+            );
         }
         Verdict::Bug(checks, vals) => {
             println!("{R}{B}🔴 BUG{X}  `{name}` — panic reachable on ordinary input:");
@@ -651,7 +667,7 @@ fn print_detailed(name: &str, v: &Verdict) -> i32 {
             println!(
                 "{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — didn't finish within {TIMEOUT_SECS}s/mode."
             );
-            println!("     {DIM}too complex to prove at the current bounds (Vec≤{BOUND}, unwind {UNWIND}). Not a pass — not a bug.{X}");
+            println!("     {DIM}too complex to prove at the current bounds (Vec≤{}, unwind {}). Not a pass — not a bug.{X}", bound(), unwind());
         }
         Verdict::Unsupported(e) => {
             println!("{Y}⏭  cargo-aiv: {e}{X}");
@@ -762,6 +778,10 @@ USAGE:
     cargo-aiv --emit <file.rs>         print the generated Kani harness, don't run
     cargo-aiv --json <file.rs>...      machine-readable results (single or batch)
 
+OPTIONS:
+    --bound N    max Vec/slice length to check (default 3)
+    --unwind N   loop unroll depth (default 5)
+
 VERDICTS:
     🔴 BUG          panic reachable on ordinary input (exit 1) — with a witness
     🟡 UNGUARDED    overflows only at i32::MAX/MIN — add a guard (exit 0)
@@ -790,6 +810,32 @@ Docs: https://github.com/ss1738/cargo-aiv
             }
             None => {
                 eprintln!("usage: cargo-aiv --prove '<bool expr over result/inputs>' <file.rs>");
+                std::process::exit(2);
+            }
+        }
+    }
+    // --bound N / --unwind N override the BMC depth. Drain the value too so it's
+    // not mistaken for a file path.
+    if let Some(i) = args.iter().position(|a| a == "--bound") {
+        match args.get(i + 1).and_then(|s| s.parse::<usize>().ok()) {
+            Some(v) if v >= 1 => {
+                BOUND_A.store(v, Ordering::Relaxed);
+                args.drain(i..=i + 1);
+            }
+            _ => {
+                eprintln!("--bound needs a positive integer");
+                std::process::exit(2);
+            }
+        }
+    }
+    if let Some(i) = args.iter().position(|a| a == "--unwind") {
+        match args.get(i + 1).and_then(|s| s.parse::<u32>().ok()) {
+            Some(v) if v >= 1 => {
+                UNWIND_A.store(v, Ordering::Relaxed);
+                args.drain(i..=i + 1);
+            }
+            _ => {
+                eprintln!("--unwind needs a positive integer");
                 std::process::exit(2);
             }
         }
@@ -835,7 +881,10 @@ Docs: https://github.com/ss1738/cargo-aiv
                 std::process::exit(1);
             }
         };
-        println!("{DIM}proving `{name}`: {B}{expr}{X}{DIM}  (all inputs, |val|≤{RANGE}, Vec≤{BOUND})…{X}");
+        println!(
+            "{DIM}proving `{name}`: {B}{expr}{X}{DIM}  (all inputs, |val|≤{RANGE}, Vec≤{})…{X}",
+            bound()
+        );
         let dir = std::env::temp_dir().join(format!("cargo-aiv-{name}-prove"));
         let res = match run_kani(&dir, &name, &lib) {
             Some(r) => r,

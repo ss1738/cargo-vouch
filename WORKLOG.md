@@ -312,3 +312,12 @@ Added proper --help/-h (full usage: modes, verdicts, supported types, Kani insta
 docs link) and --version/-V (reads CARGO_PKG_VERSION). Bare invocation now prints
 help and exits 0 (standard convention) instead of a terse error. Expected of any
 published crate.
+
+## Week 2 — --bound / --unwind tuning flags
+
+Made the two BMC depth knobs user-tunable: --bound N (max Vec/slice length,
+default 3) and --unwind N (loop unroll depth, default 5). Converted BOUND/UNWIND
+consts to atomics set once in main() before verification; RANGE stays const (it
+defines the strict/realistic UNGUARDED split). Verified --emit reflects both in
+the harness (any_bounded_vec::<i32>(5), #[kani::unwind(8)]) and the verdict message
+reads "Vec≤5". Honest framing: VERIFIED is a proof only within the chosen bounds.

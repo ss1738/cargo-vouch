@@ -157,6 +157,10 @@ tuple returns work in both default and `--prove` mode (`result.0`, `result.1`). 
 model; they don't path-explode, though heavy adapter chains can take ~30–50s. Past 120s/mode
 the tool reports ⏱️ INCONCLUSIVE instead of hanging.
 
+**Tuning the rigor:** `--bound N` sets the max Vec/slice length checked (default 3),
+`--unwind N` the loop-unroll depth (default 5). Higher = more coverage, slower. A
+✅ VERIFIED is only a proof *within* these bounds — raise them for stronger guarantees.
+
 **Not yet:** functional correctness ("does it sort?"), `unsafe`, generics/traits, floats,
 recursion, unbounded loops, external crates, `&str`/`String`, custom types. These are
 rejected cleanly (⏭), never answered wrongly.
