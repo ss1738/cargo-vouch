@@ -1,0 +1,74 @@
+[
+  {
+    "file": "corpus/01_sum_vec.rs",
+    "name": "sum_vec",
+    "has_bug": false,
+    "bug": ""
+  },
+  {
+    "file": "corpus/02_get_third.rs",
+    "name": "get_third",
+    "has_bug": false,
+    "bug": ""
+  },
+  {
+    "file": "corpus/03_double_first.rs",
+    "name": "double_first",
+    "has_bug": true,
+    "bug": "unwrap on None if vector is empty"
+  },
+  {
+    "file": "corpus/04_divide.rs",
+    "name": "divide",
+    "has_bug": true,
+    "bug": "divide by zero if b is zero"
+  },
+  {
+    "file": "corpus/05_increment_all.rs",
+    "name": "increment_all",
+    "has_bug": false,
+    "bug": ""
+  },
+  {
+    "file": "corpus/06_find_max.rs",
+    "name": "find_max",
+    "has_bug": true,
+    "bug": "unwrap on None if vector is empty"
+  },
+  {
+    "file": "corpus/07_parse_number.rs",
+    "name": "parse_number",
+    "has_bug": false,
+    "bug": ""
+  },
+  {
+    "file": "corpus/08_prepend_zero.rs",
+    "name": "prepend_zero",
+    "has_bug": true,
+    "bug": "none, but assumes vector capacity is elastically sufficient"
+  },
+  {
+    "file": "corpus/09_square_sum.rs",
+    "name": "square_sum",
+    "has_bug": false,
+    "bug": ""
+  },
+  {
+    "file": "corpus/10_remove_last.rs",
+    "name": "remove_last",
+    "has_bug": false,
+    "bug": ""
+  },
+  {
+    "file": "corpus/11_subtract_min.rs",
+    "name": "subtract_min",
+    "has_bug": true,
+    "bug": "unwrap on None if vector is empty"
+  },
+  {
+    "file": "corpus/12_average.rs",
+    "name": "average",
+    "has_bug": true,
+    "bug": "divide by zero if vector is empty"
+  }
+]
