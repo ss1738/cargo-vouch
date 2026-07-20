@@ -93,14 +93,35 @@ the lengths differ, and `cargo-aiv` prints the exact witness:
 `a = [-1], b = []`. Every hand-written test I'd write passes them the same length and
 sees nothing. The proof doesn't.
 
+## Aside: I pointed it at itself
+
+The scary failure mode for a verifier isn't missing a bug — it's *claiming a bug that
+isn't there*, or worse, silently passing everything. So I generated a fresh batch of AI
+functions it had never seen (slices, tuples, `Option`) and read every surprising verdict.
+It caught **two false verdicts in its own classifier**:
+
+- `factorial(n) = (1..=n).product()` was flagged 🔴 BUG — but the failure was Kani's
+  *unwinding assertion* (the loop needs ~1000 iterations, more than the unwind bound), not
+  a panic. Fixed: that's now ⏱️ INCONCLUSIVE ("raise `--unwind`"), and at `--unwind 15` it
+  finds the *real* bug — `factorial(13)` overflows i32.
+- `Option<i32>` payloads weren't range-clamped in "realistic" mode, so
+  `opt.map(|x| x + 1)` overflowing at `Some(i32::MAX)` read as 🔴 BUG instead of 🟡
+  UNGUARDED. Fixed — and verified the clamp still lets a genuine `.unwrap()`-on-`None`
+  surface as a real BUG.
+
+A verifier you can't trust is worse than none. `cargo-aiv --selftest` runs a known-bug
+and known-safe function and refuses to vouch for its results if it can't tell them apart.
+
 ## The point
 
 Tests are probabilistic; proofs aren't. As more code comes from models that are confidently
 wrong about their own edge cases, "the tests pass" stops being enough. **Prove, don't pray.**
 
 `cargo-aiv` is MIT-licensed and open source. It's v0 — narrow on purpose (safe Rust,
-panic-freedom + overflow, bounded inputs; scalar/`Vec`/`Option` of ints). It stands on
-[Kani](https://github.com/model-checking/kani); the new part is the zero-annotation,
-AI-aware harness generator + the BUG/UNGUARDED classifier.
+panic-freedom + overflow, bounded inputs; scalars, `Vec`/slices/tuples/`Option` of ints).
+It stands on [Kani](https://github.com/model-checking/kani); the new part is the
+zero-annotation, AI-aware harness generator, the BUG/UNGUARDED/INCONCLUSIVE classifier,
+`--prove` for postconditions, and parallel batch mode for CI.
 
-*Repo: github.com/ss1738/cargo-aiv · reproduce every number above with the corpus in `/corpus`.*
+*Repo: github.com/ss1738/cargo-aiv · reproduce every number above with the corpora in
+`/corpus*`.*
