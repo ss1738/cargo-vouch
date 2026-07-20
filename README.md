@@ -32,6 +32,7 @@ That function was written by an AI that called it *correct*, and `cargo test` pa
 | 🔴 **BUG** | Panic reachable on *ordinary* input — with the exact triggering value. Fix it. |
 | 🟡 **UNGUARDED** | Only overflows at `i32::MAX/MIN`. Real, but adversarial — add a guard. *Not a false alarm.* |
 | ✅ **VERIFIED** | Provably panic-free within bounds (Vec ≤ 3, values ≤ 1000). |
+| ⏱️ **INCONCLUSIVE** | Verification didn't finish in 120s/mode (too complex at the current bounds). *Not a pass, not a bug* — exits `2`. |
 | ⏭ **unsupported** | Uses a type outside v0 scope — skipped cleanly, never a wrong answer. |
 
 `cargo-aiv` **exits non-zero on a BUG**, so it drops straight into CI as a gate.
@@ -73,7 +74,10 @@ cargo-aiv path/to/function.rs
 
 **Supported:** safe Rust, single function, parameters of scalar ints (`i8..u64`, `bool`),
 `Vec<int>`, `Option<int>`. Property: **panic-freedom + integer overflow**, bounded (Vec ≤ 3,
-loops unwound ≤ 5).
+loops unwound ≤ 5). **Idiomatic iterator chains verify fine** — `.iter().map().filter()
+.collect()`, `.fold()`, `.scan()`, `.enumerate()`, `.max_by_key()` all lower into the bounded
+model; they don't path-explode, though heavy adapter chains can take ~30–50s. Past 120s/mode
+the tool reports ⏱️ INCONCLUSIVE instead of hanging.
 
 **Not yet:** functional correctness ("does it sort?"), `unsafe`, generics/traits, floats,
 recursion, unbounded loops, external crates, `&str`/`String`, custom types. These are

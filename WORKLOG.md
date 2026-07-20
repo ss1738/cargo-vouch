@@ -135,3 +135,27 @@ publishable to crates.io / GitHub.**
 
 **Next (to actually launch):** publish to crates.io; the "Panic Log" HN post; value
 interpretation (0ul → "empty vector"); sanity mode; widen corpus (iterators, structs).
+
+## Week 2 — iterator de-risk + timeout/INCONCLUSIVE verdict
+
+Tested the top-flagged risk (iterator path explosion) with 5 GPT-generated
+iterator-heavy fns (map/filter/into_iter/collect/enumerate/max_by_key/scan/fold)
+→ `corpus_iter/`. Findings (all measured, not assumed):
+
+| fn | time (both modes) | verdict |
+|---|---|---|
+| sum_of_squares | 7.4s | 🟡 UNGUARDED (x*x overflow) |
+| filter_and_double_odds | 34.6s | 🟡 UNGUARDED |
+| max_even_offset | 51.3s | ✅ VERIFIED |
+| first_negative_sum | 5.8s | ✅ VERIFIED |
+| product_of_positives | 7.2s | 🟡 UNGUARDED (fold * overflow) |
+
+- **No path explosion, no timeouts.** Iterator chains lower into the bounded
+  loop and verify correctly → iterators are IN SCOPE. Good news for coverage.
+- **But latency scales with adapter complexity** (7s → 51s). A stuck function
+  would previously hang forever — unusable in CI.
+- **Fix:** `kani_output()` now spawns Kani with piped stdout/stderr drained on
+  threads (no pipe-buffer deadlock) and kills it past `TIMEOUT_SECS=120`/mode.
+  New verdict ⏱️ **INCONCLUSIVE** (exit 2) — "not a pass, not a bug." Proved the
+  branch fires by dropping the cap to 3s against the 51s fn (INCONCLUSIVE, exit 2),
+  then confirmed a fast fn still returns a real verdict at 120s.
