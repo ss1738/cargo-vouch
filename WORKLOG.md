@@ -357,3 +357,21 @@ durable story isn't the mislabel rate (GPT-4o now flags most overflows) but the
 severity split the AI can't make: factorial→BUG (overflow at ordinary n=13) vs
 abs→UNGUARDED (overflow only at i32::MIN). New type support (slices/tuples/Option)
 all verified correctly on unseen code.
+
+## Week 2 — FIX #2: Option overflow misreported as BUG (also found by corpus_v2)
+
+Second false-verdict the fresh corpus surfaced. `increment_option = opt.map(|x| x+1)`
+was 🔴 BUG (witness Some(i32::MAX)) — but that's an EXTREME, so it should be 🟡
+UNGUARDED. Cause: Option<int> params were NOT range-clamped in realistic mode (unlike
+scalars/Vecs), so the realistic run still explored i32::MAX and "failed".
+
+FIX: in realistic mode, clamp the Some(_) payload:
+  if let Some(v) = opt { kani::assume(v >= -1000 && v <= 1000); }
+Result: increment_option → UNGUARDED (correct). Regression-checked that this does NOT
+hide real None-unwrap bugs — opt.unwrap() still → BUG "None value". to_positive still
+VERIFIED.
+
+Authoritative corpus_v2 (post both fixes): 5 UNGUARDED, 4 VERIFIED, 1 INCONCLUSIVE,
+0 hard BUG. Every new type shape (slice/tuple/Option/Vec) verifies correctly on unseen
+AI code. The two fixes are the real story: cargo-aiv caught two of its own false
+verdicts under fresh input — the dual-mode severity discipline held up and got sharper.
