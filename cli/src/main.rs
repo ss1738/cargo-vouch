@@ -376,7 +376,10 @@ fn parse_playback(text: &str) -> Option<(String, Vec<String>)> {
     (!assertion.is_empty() || !vals.is_empty()).then_some((assertion, vals))
 }
 
+// Unit tests are kept next to the pure functions they cover; the CLI plumbing
+// (main/batch/selftest) follows below, hence the allow.
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{build, interpret_val, map_input, parse_playback};
 
