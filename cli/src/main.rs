@@ -383,6 +383,27 @@ mod tests {
         assert!(build("fn f(s: &str) {}", false, None).is_err());
     }
 
+    #[test]
+    fn json_escapes_special_chars() {
+        use super::json_escape;
+        assert_eq!(json_escape(r#"a"b\c"#), r#"a\"b\\c"#);
+        assert_eq!(json_escape("line\nbreak"), "line\\nbreak");
+    }
+
+    #[test]
+    fn verdict_json_shapes() {
+        use super::{verdict_json, Verdict};
+        let bug = Verdict::Bug(vec!["divide by zero".into()], vec!["0".into()]);
+        assert_eq!(
+            verdict_json("swap_div", &bug),
+            r#"{"name":"swap_div","verdict":"BUG","checks":["divide by zero"],"witness":["0"]}"#
+        );
+        assert_eq!(
+            verdict_json("ok", &Verdict::Verified),
+            r#"{"name":"ok","verdict":"VERIFIED","checks":[],"witness":[]}"#
+        );
+    }
+
     // Two failing checks → two concrete_vals blocks. We must keep only the first
     // witness, not merge tokens across blocks (the find_max --prove regression).
     #[test]
@@ -511,6 +532,50 @@ enum Verdict {
     Unsupported(String),
 }
 
+fn json_escape(s: &str) -> String {
+    let mut o = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => o.push_str("\\\""),
+            '\\' => o.push_str("\\\\"),
+            '\n' => o.push_str("\\n"),
+            '\r' => o.push_str("\\r"),
+            '\t' => o.push_str("\\t"),
+            c if (c as u32) < 0x20 => o.push_str(&format!("\\u{:04x}", c as u32)),
+            c => o.push(c),
+        }
+    }
+    o
+}
+
+/// One result as a JSON object. `witness` values are the human-readable form.
+fn verdict_json(label: &str, v: &Verdict) -> String {
+    let (kind, checks, witness): (&str, Vec<String>, Vec<String>) = match v {
+        Verdict::Verified => ("VERIFIED", vec![], vec![]),
+        Verdict::Bug(c, w) => (
+            "BUG",
+            c.clone(),
+            w.iter().map(|x| interpret_val(x)).collect(),
+        ),
+        Verdict::Unguarded(c) => ("UNGUARDED", c.clone(), vec![]),
+        Verdict::Inconclusive => ("INCONCLUSIVE", vec![], vec![]),
+        Verdict::Unsupported(e) => ("UNSUPPORTED", vec![e.clone()], vec![]),
+    };
+    let arr = |xs: &[String]| {
+        xs.iter()
+            .map(|x| format!("\"{}\"", json_escape(x)))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    format!(
+        "{{\"name\":\"{}\",\"verdict\":\"{}\",\"checks\":[{}],\"witness\":[{}]}}",
+        json_escape(label),
+        kind,
+        arr(&checks),
+        arr(&witness)
+    )
+}
+
 /// Classify one function (panic-freedom mode): strict + realistic, then dual-mode
 /// classify. Pure of printing — used by both single-file and batch paths. `slot`
 /// namespaces the temp dir so parallel batch workers can't collide (even on
@@ -598,7 +663,7 @@ fn print_detailed(name: &str, v: &Verdict) -> i32 {
 /// Batch mode: verify every file in parallel (bounded workers), print a compact
 /// table in input order, exit 1 if any BUG. Parallelism is what makes verifying a
 /// whole crate tractable — sequential Kani runs over N functions don't scale.
-fn batch(files: &[String]) -> i32 {
+fn batch(files: &[String], json: bool) -> i32 {
     let tag = |v: &Verdict| match v {
         Verdict::Verified => format!("{G}✅ VERIFIED{X}"),
         Verdict::Bug(..) => format!("{R}🔴 BUG{X}"),
@@ -614,10 +679,12 @@ fn batch(files: &[String]) -> i32 {
         .unwrap_or(2)
         .clamp(1, 3)
         .min(files.len().max(1));
-    println!(
-        "{DIM}cargo-aiv batch — {} file(s), {workers} workers, ≤{TIMEOUT_SECS}s/mode each{X}\n",
-        files.len()
-    );
+    if !json {
+        println!(
+            "{DIM}cargo-aiv batch — {} file(s), {workers} workers, ≤{TIMEOUT_SECS}s/mode each{X}\n",
+            files.len()
+        );
+    }
     let next = std::sync::atomic::AtomicUsize::new(0);
     let results: std::sync::Mutex<Vec<(usize, String, Verdict)>> =
         std::sync::Mutex::new(Vec::new());
@@ -643,13 +710,23 @@ fn batch(files: &[String]) -> i32 {
     let mut out = results.into_inner().unwrap();
     out.sort_by_key(|(i, _, _)| *i);
     let (mut bugs, mut ung, mut ver, mut other) = (0, 0, 0, 0);
-    for (_, label, v) in &out {
+    for (_, _, v) in &out {
         match v {
             Verdict::Bug(..) => bugs += 1,
             Verdict::Unguarded(_) => ung += 1,
             Verdict::Verified => ver += 1,
             _ => other += 1,
         }
+    }
+    if json {
+        let items: Vec<String> = out.iter().map(|(_, l, v)| verdict_json(l, v)).collect();
+        println!(
+            "{{\"results\":[{}],\"summary\":{{\"bug\":{bugs},\"unguarded\":{ung},\"verified\":{ver},\"other\":{other}}}}}",
+            items.join(",")
+        );
+        return i32::from(bugs > 0);
+    }
+    for (_, label, v) in &out {
         let detail = match v {
             Verdict::Bug(_, vals) if !vals.is_empty() => {
                 let p: Vec<String> = vals.iter().map(|x| interpret_val(x)).collect();
@@ -671,6 +748,7 @@ fn main() {
         args.remove(0); // invoked as `cargo aiv ...`
     }
     let emit = args.iter().any(|a| a == "--emit");
+    let json = args.iter().any(|a| a == "--json");
     // --prove '<expr>' consumes the following arg as the postcondition
     let mut prove: Option<String> = None;
     if let Some(i) = args.iter().position(|a| a == "--prove") {
@@ -697,7 +775,7 @@ fn main() {
 
     // Batch mode: 2+ files → summary table, one exit code (only with plain verify).
     if files.len() > 1 && !emit && prove.is_none() {
-        std::process::exit(batch(&files));
+        std::process::exit(batch(&files, json));
     }
 
     let file = files[0].clone();
@@ -763,10 +841,14 @@ fn main() {
 
     // Single-file verify: strict + realistic, dual-mode classify, detailed report.
     let peek = build(&src, false, None).map(|(n, _)| n).unwrap_or_default();
-    if !peek.is_empty() {
+    if !peek.is_empty() && !json {
         println!("{DIM}verifying `{peek}` (strict + realistic bounded model checking, ≤{TIMEOUT_SECS}s/mode)…{X}");
     }
     let (name, verdict) = verify_one(&src, 0);
     let label = if name.is_empty() { file } else { name };
+    if json {
+        println!("{}", verdict_json(&label, &verdict));
+        std::process::exit(verdict_code(&verdict));
+    }
     std::process::exit(print_detailed(&label, &verdict));
 }

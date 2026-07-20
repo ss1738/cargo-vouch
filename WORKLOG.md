@@ -296,3 +296,12 @@ Bumped 0.1.0 → 0.2.0, sharpened the crate description (now mentions --prove + 
 Wrote CHANGELOG.md documenting the release: --prove, batch mode, INCONCLUSIVE,
 slices, tuples, readable counterexamples, tests + CI, the counterexample parser fix.
 `cargo publish --dry-run` green (Packaged 6 files, 38.3KiB, verify-compiled clean).
+
+## Week 2 — --json machine-readable output
+
+Added `--json` for single-file and batch: emits {"name","verdict","checks",
+"witness"} objects (batch wraps in {"results":[...],"summary":{...}}). Hand-rolled
+JSON with a json_escape helper (quotes/backslash/control/unicode) — no serde dep.
+Progress lines suppressed under --json so stdout is pure JSON. Validated through
+python -m json.tool; witness uses the human-readable form ("0 (usize → empty
+vector)" → → escaped). 2 new unit tests (json_escape, verdict_json) → 13 green.
