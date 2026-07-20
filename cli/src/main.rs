@@ -651,7 +651,9 @@ fn verify_one(src: &str, slot: usize) -> (String, Verdict) {
         Err(e) => return (String::new(), Verdict::Unsupported(e)),
     };
     let real_lib = build(src, true, None).unwrap().1;
-    let base = std::env::temp_dir().join(format!("cargo-aiv-{name}-{slot}"));
+    // Namespace by PID as well as slot so two concurrent cargo-aiv processes working
+    // on different files that both define `fn f` can't collide in the temp dir.
+    let base = std::env::temp_dir().join(format!("cargo-aiv-{}-{name}-{slot}", std::process::id()));
     let (strict, real) = match (
         run_kani(&base.join("strict"), &name, &strict_lib),
         run_kani(&base.join("realistic"), &name, &real_lib),
@@ -995,7 +997,8 @@ Docs: https://github.com/ss1738/cargo-aiv
             "{DIM}proving `{name}`: {B}{expr}{X}{DIM}  (all inputs, |val|≤{RANGE}, Vec≤{})…{X}",
             bound()
         );
-        let dir = std::env::temp_dir().join(format!("cargo-aiv-{name}-prove"));
+        let dir =
+            std::env::temp_dir().join(format!("cargo-aiv-{}-{name}-prove", std::process::id()));
         let res = match run_kani(&dir, &name, &lib) {
             Some(r) => r,
             None => {
