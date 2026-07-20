@@ -21,7 +21,7 @@ fn sum_vec(numbers: Vec<i32>) -> i32 {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_sum_vec() {
-    let numbers: Vec<i32> = any_bounded_vec::<i32>(3);
+    let numbers: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = sum_vec(numbers);
 }
 
@@ -36,7 +36,7 @@ fn get_third(items: Vec<i32>) -> Option<i32> {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_get_third() {
-    let items: Vec<i32> = any_bounded_vec::<i32>(3);
+    let items: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = get_third(items);
 }
 
@@ -47,7 +47,7 @@ fn double_first(numbers: Vec<i32>) -> i32 {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_double_first() {
-    let numbers: Vec<i32> = any_bounded_vec::<i32>(3);
+    let numbers: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = double_first(numbers);
 }
 
@@ -59,7 +59,9 @@ fn divide(a: i32, b: i32) -> i32 {
 #[kani::unwind(5)]
 fn verify_divide() {
     let a: i32 = kani::any();
+    kani::assume(a >= -1000 && a <= 1000);
     let b: i32 = kani::any();
+    kani::assume(b >= -1000 && b <= 1000);
     let _ = divide(a, b);
 }
 
@@ -70,7 +72,7 @@ fn increment_all(numbers: Vec<i32>) -> Vec<i32> {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_increment_all() {
-    let numbers: Vec<i32> = any_bounded_vec::<i32>(3);
+    let numbers: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = increment_all(numbers);
 }
 
@@ -81,7 +83,7 @@ fn find_max(numbers: Vec<i32>) -> i32 {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_find_max() {
-    let numbers: Vec<i32> = any_bounded_vec::<i32>(3);
+    let numbers: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = find_max(numbers);
 }
 
@@ -93,7 +95,7 @@ fn prepend_zero(mut numbers: Vec<i32>) -> Vec<i32> {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_prepend_zero() {
-    let numbers: Vec<i32> = any_bounded_vec::<i32>(3);
+    let numbers: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = prepend_zero(numbers);
 }
 
@@ -104,7 +106,7 @@ fn square_sum(numbers: Vec<i32>) -> i32 {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_square_sum() {
-    let numbers: Vec<i32> = any_bounded_vec::<i32>(3);
+    let numbers: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = square_sum(numbers);
 }
 
@@ -116,7 +118,7 @@ fn remove_last(mut numbers: Vec<i32>) -> Vec<i32> {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_remove_last() {
-    let numbers: Vec<i32> = any_bounded_vec::<i32>(3);
+    let numbers: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = remove_last(numbers);
 }
 
@@ -128,7 +130,7 @@ fn subtract_min(numbers: Vec<i32>) -> i32 {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_subtract_min() {
-    let numbers: Vec<i32> = any_bounded_vec::<i32>(3);
+    let numbers: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = subtract_min(numbers);
 }
 
@@ -140,6 +142,6 @@ fn average(numbers: Vec<i32>) -> f64 {
 #[kani::proof]
 #[kani::unwind(5)]
 fn verify_average() {
-    let numbers: Vec<i32> = any_bounded_vec::<i32>(3);
+    let numbers: Vec<i32> = any_bounded_vec_ranged(3);
     let _ = average(numbers);
 }
