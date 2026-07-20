@@ -2,12 +2,17 @@
 //!
 //! Parses a single-fn `.rs` with `syn`, auto-generates a Kani proof harness,
 //! runs bounded model checking in TWO modes (strict + realistic), and reports:
-//!   🔴 BUG        panic reachable on ordinary input — fix it
-//!   🟡 UNGUARDED  overflow only at i32::MAX/MIN — add a guard (not a false alarm)
-//!   ✅ VERIFIED   panic-free for Vec≤3, |val|≤1000
+//!   🔴 BUG          panic reachable on ordinary input — fix it
+//!   🟡 UNGUARDED    overflow only at i32::MAX/MIN — add a guard (not a false alarm)
+//!   ✅ VERIFIED     panic-free within bounds
+//!   ⏱️  INCONCLUSIVE didn't finish within the per-mode timeout
 //!
-//!   cargo-aiv <file.rs>          # verify (default)
-//!   cargo-aiv --emit <file.rs>   # just print the generated harness
+//!   cargo-aiv <file.rs>...            verify one file, or many (parallel batch)
+//!   cargo-aiv --prove '<expr>' <file> prove a postcondition over `result`/inputs
+//!   cargo-aiv --emit <file.rs>        print the generated harness, don't run
+//!   cargo-aiv --json <file.rs>...     machine-readable results
+//!   cargo-aiv --selftest              check the Kani wiring is trustworthy
+//!   cargo-aiv --bound N / --unwind N  tune the BMC depth
 
 use quote::quote;
 use std::collections::BTreeMap;
@@ -609,15 +614,30 @@ fn verify_one(src: &str, slot: usize) -> (String, Verdict) {
     };
     let s = strict.get(&name).cloned().unwrap_or((false, vec![]));
     let r = real.get(&name).cloned().unwrap_or((false, vec![]));
+    // An "unwinding assertion" failure is NOT a panic — it means a loop wasn't fully
+    // unrolled within the unwind bound, so the check is incomplete, not a bug. Keep
+    // only genuine panic/overflow checks; unwinding-only failures ⇒ INCONCLUSIVE.
+    let real_fails = |checks: &[String]| -> Vec<String> {
+        checks
+            .iter()
+            .filter(|c| !c.contains("unwinding assertion"))
+            .cloned()
+            .collect()
+    };
+    let s_real = real_fails(&s.1);
+    let r_real = real_fails(&r.1);
     let verdict = if !s.0 {
         Verdict::Verified
-    } else if r.0 {
+    } else if s_real.is_empty() {
+        // strict failed only on unwinding assertions — couldn't fully check the loop
+        Verdict::Inconclusive
+    } else if !r_real.is_empty() {
         let vals = counterexample(&base.join("realistic"), &name)
             .map(|(_, v)| v)
             .unwrap_or_default();
-        Verdict::Bug(r.1, vals)
+        Verdict::Bug(r_real, vals)
     } else {
-        Verdict::Unguarded(s.1)
+        Verdict::Unguarded(s_real)
     };
     (name, verdict)
 }

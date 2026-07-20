@@ -334,3 +334,26 @@ Wired into verify.yml before the gate so CI fails loudly instead of false-passin
 Regression check earlier confirmed the canonical corpus verdicts unchanged after
 this session's 9 features (find_max→BUG, sum_vec→UNGUARDED, get_third→VERIFIED,
 divide→BUG). Suite 13 green, fmt/clippy clean.
+
+## Week 2 — FIX: unwinding-assertion mislabeled as BUG (found by fresh corpus)
+
+Generated a fresh 10-fn AI corpus (corpus_v2/, mixing slices/tuples/Vec/Option) to
+grow launch evidence — and it caught a real false-positive in cargo-aiv itself.
+
+`factorial(n) = (1..=n).product()` was reported 🔴 BUG "panic reachable" — but the
+failed check was `unwinding assertion loop 0`, which is NOT a panic. It means Kani
+couldn't unroll the loop within unwind=5 (n ranges to 1000). Reporting that as a BUG
+is precisely the false verdict this tool exists to prevent.
+
+FIX: filter unwinding-assertion checks out of the real-failure set; a strict failure
+that is ONLY unwinding assertions ⇒ INCONCLUSIVE, not BUG/UNGUARDED. Verified:
+  factorial @ default   → ⏱️ INCONCLUSIVE (honest: can't check at unwind 5)
+  factorial @ --unwind 15 → 🔴 BUG, "multiply overflow", witness 13 (13! > i32::MAX)
+The --unwind knob now lets a user escalate an INCONCLUSIVE to a real verdict.
+
+Fresh-corpus cross-check (VERIFIED = safe-for-all-inputs): AI mislabeled 1/10 by the
+strict criterion (sum_slice: ".sum() handles overflow" — it doesn't → UNGUARDED). The
+durable story isn't the mislabel rate (GPT-4o now flags most overflows) but the
+severity split the AI can't make: factorial→BUG (overflow at ordinary n=13) vs
+abs→UNGUARDED (overflow only at i32::MIN). New type support (slices/tuples/Option)
+all verified correctly on unseen code.
