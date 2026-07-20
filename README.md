@@ -86,6 +86,19 @@ Because a Kani install is minutes, run this on a schedule / `workflow_dispatch`
 rather than every push — keep `cargo test` + `clippy` on the hot path (see
 `.github/workflows/ci.yml`).
 
+### Machine-readable output
+
+Add `--json` (single file or batch) for structured results you can post to a PR or
+gate on programmatically:
+
+```console
+$ cargo-aiv --json src/*.rs | jq '.summary'
+{ "bug": 1, "unguarded": 0, "verified": 1, "other": 0 }
+```
+
+Each result is `{"name", "verdict", "checks", "witness"}`; batch also emits a
+`summary`. Exit code is unchanged (1 if any BUG).
+
 ## Prove properties, not just panic-freedom
 
 Panic-freedom is the default. To prove a **postcondition** about the return value, pass
