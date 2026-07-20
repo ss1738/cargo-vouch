@@ -60,7 +60,7 @@ cargo-aiv your_function.rs
 $ cargo-aiv find_max.rs
 🔴 BUG  `find_max` — panic reachable on ordinary input:
      • called `Option::unwrap()` on a `None` value
-     reachable with symbolic input(s): 0ul      # the empty vector
+     reachable with input(s), in order: 0 (usize → empty vector)
 ```
 
 Zero annotations. Paste the function, get a verdict. It exits non-zero on a real bug, so it
