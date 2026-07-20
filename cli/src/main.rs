@@ -76,7 +76,19 @@ fn scalar_int(ty: &syn::Type) -> Option<String> {
     (args.is_empty() && SCALARS.contains(&base.as_str())).then_some(base)
 }
 
-fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<String> {
+/// A bounded symbolic `Vec<et>` binding line. `mutable` makes it `let mut`.
+fn vec_binding(name: &str, et: &str, realistic: bool, mutable: bool) -> String {
+    let m = if mutable { "mut " } else { "" };
+    if realistic && et == "i32" {
+        format!("    let {m}{name}: Vec<i32> = any_bounded_vec_ranged({BOUND});")
+    } else {
+        format!("    let {m}{name}: Vec<{et}> = any_bounded_vec::<{et}>({BOUND});")
+    }
+}
+
+/// Map a parameter to (binding line(s), argument expression at the call site).
+/// The arg expr differs from the name for by-reference params (`&v`, `&mut v`).
+fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, String)> {
     if let Some(s) = scalar_int(ty) {
         let mut line = format!("    let {name}: {s} = kani::any();");
         if realistic && s.starts_with('i') {
@@ -84,22 +96,35 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<String> {
         } else if realistic && s.starts_with('u') {
             line += &format!("\n    kani::assume({name} <= {RANGE});");
         }
-        return Some(line);
+        return Some((line, name.to_string()));
+    }
+    // &[int] / &mut [int] — bind a symbolic Vec and pass it by reference (a `&Vec`
+    // coerces to `&[T]`). Covers slice params, extremely common in AI Rust.
+    if let syn::Type::Reference(r) = ty {
+        if let syn::Type::Slice(sl) = &*r.elem {
+            let et = scalar_int(&sl.elem)?;
+            let mutable = r.mutability.is_some();
+            let arg = if mutable { format!("&mut {name}") } else { format!("&{name}") };
+            return Some((vec_binding(name, &et, realistic, mutable), arg));
+        }
+        // &Vec<int> / &mut Vec<int>
+        if let Some(("Vec", inner)) = path_head(&r.elem).as_ref().map(|(b, a)| (b.as_str(), a)) {
+            let et = scalar_int(inner.first()?)?;
+            let mutable = r.mutability.is_some();
+            let arg = if mutable { format!("&mut {name}") } else { format!("&{name}") };
+            return Some((vec_binding(name, &et, realistic, mutable), arg));
+        }
     }
     let (base, args) = path_head(ty)?;
     match (base.as_str(), args.as_slice()) {
         ("Vec", [inner]) => {
             let et = scalar_int(inner)?;
-            if realistic && et == "i32" {
-                Some(format!("    let {name}: Vec<i32> = any_bounded_vec_ranged({BOUND});"))
-            } else {
-                Some(format!("    let {name}: Vec<{et}> = any_bounded_vec::<{et}>({BOUND});"))
-            }
+            Some((vec_binding(name, &et, realistic, false), name.to_string()))
         }
         ("Option", [inner]) => {
             scalar_int(inner)?;
             let tystr = quote!(#ty).to_string().replace(' ', "");
-            Some(format!("    let {name}: {tystr} = kani::any();"))
+            Some((format!("    let {name}: {tystr} = kani::any();"), name.to_string()))
         }
         _ => None,
     }
@@ -122,11 +147,11 @@ fn build(src: &str, realistic: bool) -> Result<(String, String), String> {
                 syn::Pat::Ident(pi) => pi.ident.to_string(),
                 _ => return Err(format!("unsupported parameter pattern in `{name}`")),
             };
-            let line = map_input(&pname, &pt.ty, realistic).ok_or_else(|| {
-                format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>)", quote!(#pt).to_string())
+            let (line, arg_expr) = map_input(&pname, &pt.ty, realistic).ok_or_else(|| {
+                format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int])", quote!(#pt).to_string())
             })?;
             inputs.push(line);
-            args.push(pname);
+            args.push(arg_expr);
         }
     }
     let lib = format!(
