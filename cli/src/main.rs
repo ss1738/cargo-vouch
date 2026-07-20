@@ -262,9 +262,17 @@ fn counterexample(dir: &PathBuf, name: &str) -> Option<(String, Vec<String>)> {
         .output()
         .ok()?;
     let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
-    // Kani prints one `concrete_vals` block per failing check. Each block is a
-    // complete, independent witness — capture only the FIRST, or the values from
-    // different witnesses get merged into one meaningless list.
+    parse_playback(&text)
+}
+
+/// Parse Kani `--concrete-playback=print` output into (assertion message, input
+/// values in order). Pure so it can be unit-tested against captured Kani output.
+///
+/// Kani prints one `concrete_vals` block per failing check; each is a complete,
+/// independent witness. We keep only the FIRST — merging tokens across blocks
+/// produces a meaningless list (e.g. mixing a postcondition witness with a
+/// separate panic witness).
+fn parse_playback(text: &str) -> Option<(String, Vec<String>)> {
     let (mut assertion, mut vals, mut in_block, mut done) =
         (String::new(), Vec::new(), false, false);
     for ln in text.lines() {
@@ -293,7 +301,60 @@ fn counterexample(dir: &PathBuf, name: &str) -> Option<(String, Vec<String>)> {
 
 #[cfg(test)]
 mod tests {
-    use super::interpret_val;
+    use super::{interpret_val, parse_playback};
+
+    // Two failing checks → two concrete_vals blocks. We must keep only the first
+    // witness, not merge tokens across blocks (the find_max --prove regression).
+    #[test]
+    fn playback_keeps_only_first_witness_block() {
+        let kani = r#"
+    let concrete_vals: Vec<Vec<u8>> = vec![
+        // 1ul
+        vec![1, 0, 0, 0, 0, 0, 0, 0],
+        // -1
+        vec![255, 255, 255, 255],
+    ];
+    kani::concrete_playback_run(concrete_vals, verify_find_max);
+    let concrete_vals: Vec<Vec<u8>> = vec![
+        // 0ul
+        vec![0, 0, 0, 0, 0, 0, 0, 0],
+    ];
+"#;
+        let (_, vals) = parse_playback(kani).unwrap();
+        assert_eq!(vals, vec!["1ul", "-1"]); // NOT ["1ul","-1","0ul"]
+    }
+
+    // One failing check with two params → one block holding all param values.
+    // The first-block rule must NOT truncate this (the dot_index case).
+    #[test]
+    fn playback_keeps_all_params_in_one_block() {
+        let kani = r#"
+    let concrete_vals: Vec<Vec<u8>> = vec![
+        // 1ul
+        vec![1, 0, 0, 0, 0, 0, 0, 0],
+        // -1
+        vec![255, 255, 255, 255],
+        // 0ul
+        vec![0, 0, 0, 0, 0, 0, 0, 0],
+    ];
+"#;
+        let (_, vals) = parse_playback(kani).unwrap();
+        assert_eq!(vals, vec!["1ul", "-1", "0ul"]);
+    }
+
+    #[test]
+    fn playback_captures_assertion_message() {
+        let kani = "Check for `assertion`: \"attempt to add with overflow\"\n    let concrete_vals: Vec<Vec<u8>> = vec![\n        // 5i32\n    ];";
+        let (msg, vals) = parse_playback(kani).unwrap();
+        assert_eq!(msg, "attempt to add with overflow");
+        assert_eq!(vals, vec!["5i32"]);
+    }
+
+    #[test]
+    fn playback_none_when_no_block() {
+        assert!(parse_playback("VERIFICATION:- SUCCESSFUL\n").is_none());
+    }
+
     #[test]
     fn usize_reads_as_vector_length() {
         assert_eq!(interpret_val("0ul"), "0 (usize → empty vector)");

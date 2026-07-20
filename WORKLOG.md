@@ -230,3 +230,15 @@ showed a merged 3-token nonsense witness. Now captures only the first block.
 Verified the fix doesn't truncate legit multi-PARAM witnesses (dot_index still
 shows a=[-1], b=[] — 3 tokens from one block). build() now takes an optional
 postcondition; all call sites updated. Unit tests still green.
+
+## Week 2 — harden --prove: pure parser + regression tests + prove corpus
+
+Extracted the concrete-playback parsing out of counterexample() into a pure
+`parse_playback(text) -> Option<(assertion, vals)>` so it's unit-testable without
+shelling out to Kani. Added 4 tests using REAL captured Kani output:
+- playback_keeps_only_first_witness_block — the find_max --prove bug (2 blocks →
+  must not merge to ["1ul","-1","0ul"]; expect ["1ul","-1"])
+- playback_keeps_all_params_in_one_block — dot_index (2 params, 1 block → keep all 3)
+- playback_captures_assertion_message, playback_none_when_no_block
+Suite now 7 tests, all green. corpus_prove/ + manifest.json make the README
+--prove examples reproducible.
