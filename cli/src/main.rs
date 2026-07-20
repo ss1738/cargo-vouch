@@ -475,6 +475,23 @@ mod tests {
     }
 
     #[test]
+    fn unwinding_assertions_are_not_real_failures() {
+        use super::real_failures;
+        // a loop that overran the unwind bound is NOT a bug — filtered out
+        let only_unwind = vec!["unwinding assertion loop 0".to_string()];
+        assert!(real_failures(&only_unwind).is_empty());
+        // a genuine panic is kept
+        let mixed = vec![
+            "unwinding assertion loop 0".to_string(),
+            "attempt to multiply with overflow".to_string(),
+        ];
+        assert_eq!(
+            real_failures(&mixed),
+            vec!["attempt to multiply with overflow"]
+        );
+    }
+
+    #[test]
     fn usize_reads_as_vector_length() {
         assert_eq!(interpret_val("0ul"), "0 (usize → empty vector)");
         assert_eq!(interpret_val("1ul"), "1 (usize → 1-element vector)");
@@ -594,6 +611,18 @@ fn verdict_json(label: &str, v: &Verdict) -> String {
     )
 }
 
+/// Keep only genuine panic/overflow checks. An "unwinding assertion" failure is NOT
+/// a panic — it means a loop wasn't fully unrolled within the unwind bound, so the
+/// check is incomplete. Unwinding-only failures must classify as INCONCLUSIVE, never
+/// BUG/UNGUARDED (that would be a false verdict — the very thing this tool prevents).
+fn real_failures(checks: &[String]) -> Vec<String> {
+    checks
+        .iter()
+        .filter(|c| !c.contains("unwinding assertion"))
+        .cloned()
+        .collect()
+}
+
 /// Classify one function (panic-freedom mode): strict + realistic, then dual-mode
 /// classify. Pure of printing — used by both single-file and batch paths. `slot`
 /// namespaces the temp dir so parallel batch workers can't collide (even on
@@ -614,18 +643,8 @@ fn verify_one(src: &str, slot: usize) -> (String, Verdict) {
     };
     let s = strict.get(&name).cloned().unwrap_or((false, vec![]));
     let r = real.get(&name).cloned().unwrap_or((false, vec![]));
-    // An "unwinding assertion" failure is NOT a panic — it means a loop wasn't fully
-    // unrolled within the unwind bound, so the check is incomplete, not a bug. Keep
-    // only genuine panic/overflow checks; unwinding-only failures ⇒ INCONCLUSIVE.
-    let real_fails = |checks: &[String]| -> Vec<String> {
-        checks
-            .iter()
-            .filter(|c| !c.contains("unwinding assertion"))
-            .cloned()
-            .collect()
-    };
-    let s_real = real_fails(&s.1);
-    let r_real = real_fails(&r.1);
+    let s_real = real_failures(&s.1);
+    let r_real = real_failures(&r.1);
     let verdict = if !s.0 {
         Verdict::Verified
     } else if s_real.is_empty() {
