@@ -242,3 +242,20 @@ shelling out to Kani. Added 4 tests using REAL captured Kani output:
 - playback_captures_assertion_message, playback_none_when_no_block
 Suite now 7 tests, all green. corpus_prove/ + manifest.json make the README
 --prove examples reproducible.
+
+## Week 2 — batch mode (CI over a crate) + parallelism lesson
+
+`cargo-aiv f1.rs f2.rs ...` (2+ files) → parallel verify, summary table, exit 1
+if any BUG. Refactored the single-file verify into a Verdict enum + verify_one()
+(pure of printing) shared by both paths; print_detailed() for single, batch() for
+many. Bug witnesses shown inline in the table.
+
+MEASURED LESSON (not assumed): first tried 6 workers → 287s BUT two UNGUARDED
+functions (dot_zip, double_in_place) flipped to FALSE ⏱️ INCONCLUSIVE. Cause:
+6 concurrent CBMC/SMT solvers thrash CPU, starving each run past its 120s timeout.
+Kani is heavy + already multi-threaded. Dropped to ~cores/4 (≤3) workers → verdicts
+match the sequential baseline exactly (2 BUG, 4 UNGUARDED) AND 175s (~2x faster
+than sequential). A false verdict from over-parallelism is worse than being slow.
+
+verify_one() takes a `slot` to namespace its temp dir so parallel workers (and
+same-named fns across files) never collide. Unit suite still 7 green.

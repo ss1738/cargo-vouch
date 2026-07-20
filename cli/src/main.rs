@@ -423,6 +423,163 @@ fn interpret_val(tok: &str) -> String {
     }
 }
 
+enum Verdict {
+    Verified,
+    Bug(Vec<String>, Vec<String>), // failed checks, counterexample value tokens
+    Unguarded(Vec<String>),        // overflow only at extremes
+    Inconclusive,
+    Unsupported(String),
+}
+
+/// Classify one function (panic-freedom mode): strict + realistic, then dual-mode
+/// classify. Pure of printing — used by both single-file and batch paths. `slot`
+/// namespaces the temp dir so parallel batch workers can't collide (even on
+/// same-named functions across files).
+fn verify_one(src: &str, slot: usize) -> (String, Verdict) {
+    let (name, strict_lib) = match build(src, false, None) {
+        Ok(v) => v,
+        Err(e) => return (String::new(), Verdict::Unsupported(e)),
+    };
+    let real_lib = build(src, true, None).unwrap().1;
+    let base = std::env::temp_dir().join(format!("cargo-aiv-{name}-{slot}"));
+    let (strict, real) = match (
+        run_kani(&base.join("strict"), &name, &strict_lib),
+        run_kani(&base.join("realistic"), &name, &real_lib),
+    ) {
+        (Some(s), Some(r)) => (s, r),
+        _ => return (name, Verdict::Inconclusive),
+    };
+    let s = strict.get(&name).cloned().unwrap_or((false, vec![]));
+    let r = real.get(&name).cloned().unwrap_or((false, vec![]));
+    let verdict = if !s.0 {
+        Verdict::Verified
+    } else if r.0 {
+        let vals = counterexample(&base.join("realistic"), &name)
+            .map(|(_, v)| v)
+            .unwrap_or_default();
+        Verdict::Bug(r.1, vals)
+    } else {
+        Verdict::Unguarded(s.1)
+    };
+    (name, verdict)
+}
+
+/// Exit code convention shared by single-file and batch: BUG → 1, else 0
+/// (INCONCLUSIVE stays 2 in single-file for back-compat).
+fn verdict_code(v: &Verdict) -> i32 {
+    match v {
+        Verdict::Bug(..) => 1,
+        Verdict::Inconclusive => 2,
+        Verdict::Unsupported(_) => 1,
+        _ => 0,
+    }
+}
+
+/// Detailed single-file report. Returns the process exit code.
+fn print_detailed(name: &str, v: &Verdict) -> i32 {
+    println!();
+    match v {
+        Verdict::Verified => {
+            println!("{G}{B}✅ VERIFIED{X}  `{name}` — panic-free for Vec≤{BOUND}, |val|≤{RANGE}.");
+        }
+        Verdict::Bug(checks, vals) => {
+            println!("{R}{B}🔴 BUG{X}  `{name}` — panic reachable on ordinary input:");
+            for c in checks {
+                println!("     {R}• {c}{X}");
+            }
+            if !vals.is_empty() {
+                let pretty: Vec<String> = vals.iter().map(|v| interpret_val(v)).collect();
+                println!("     {DIM}reachable with input(s), in order: {}{X}", pretty.join(", "));
+            }
+        }
+        Verdict::Unguarded(checks) => {
+            println!("{Y}{B}🟡 UNGUARDED{X}  `{name}` — safe on normal input, but overflows at i32::MAX/MIN:");
+            for c in checks {
+                println!("     {Y}• {c}{X}");
+            }
+            println!("     {DIM}add a bounds guard or use checked_/saturating_ arithmetic.{X}");
+        }
+        Verdict::Inconclusive => {
+            println!("{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — didn't finish within {TIMEOUT_SECS}s/mode.");
+            println!("     {DIM}too complex to prove at the current bounds (Vec≤{BOUND}, unwind {UNWIND}). Not a pass — not a bug.{X}");
+        }
+        Verdict::Unsupported(e) => {
+            println!("{Y}⏭  cargo-aiv: {e}{X}");
+        }
+    }
+    verdict_code(v)
+}
+
+/// Batch mode: verify every file in parallel (bounded workers), print a compact
+/// table in input order, exit 1 if any BUG. Parallelism is what makes verifying a
+/// whole crate tractable — sequential Kani runs over N functions don't scale.
+fn batch(files: &[String]) -> i32 {
+    let tag = |v: &Verdict| match v {
+        Verdict::Verified => format!("{G}✅ VERIFIED{X}"),
+        Verdict::Bug(..) => format!("{R}🔴 BUG{X}"),
+        Verdict::Unguarded(_) => format!("{Y}🟡 UNGUARDED{X}"),
+        Verdict::Inconclusive => format!("{Y}⏱️  INCONCLUSIVE{X}"),
+        Verdict::Unsupported(_) => format!("{DIM}⏭  unsupported{X}"),
+    };
+    // Kani/CBMC is CPU- and memory-heavy and already multi-threaded, so each run
+    // wants most of the machine. Over-parallelizing starves individual runs past
+    // their timeout → FALSE ⏱️ INCONCLUSIVE. Keep concurrency low: ~cores/4, ≤3.
+    let workers = std::thread::available_parallelism()
+        .map(|n| (n.get() / 4).max(1))
+        .unwrap_or(2)
+        .clamp(1, 3)
+        .min(files.len().max(1));
+    println!(
+        "{DIM}cargo-aiv batch — {} file(s), {workers} workers, ≤{TIMEOUT_SECS}s/mode each{X}\n",
+        files.len()
+    );
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: std::sync::Mutex<Vec<(usize, String, Verdict)>> =
+        std::sync::Mutex::new(Vec::new());
+    thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if i >= files.len() {
+                    break;
+                }
+                let f = &files[i];
+                let (label, v) = match fs::read_to_string(f) {
+                    Ok(src) => {
+                        let (name, v) = verify_one(&src, i);
+                        (if name.is_empty() { f.clone() } else { name }, v)
+                    }
+                    Err(e) => (f.clone(), Verdict::Unsupported(e.to_string())),
+                };
+                results.lock().unwrap().push((i, label, v));
+            });
+        }
+    });
+    let mut out = results.into_inner().unwrap();
+    out.sort_by_key(|(i, _, _)| *i);
+    let (mut bugs, mut ung, mut ver, mut other) = (0, 0, 0, 0);
+    for (_, label, v) in &out {
+        match v {
+            Verdict::Bug(..) => bugs += 1,
+            Verdict::Unguarded(_) => ung += 1,
+            Verdict::Verified => ver += 1,
+            _ => other += 1,
+        }
+        let detail = match v {
+            Verdict::Bug(_, vals) if !vals.is_empty() => {
+                let p: Vec<String> = vals.iter().map(|x| interpret_val(x)).collect();
+                format!("  {DIM}← {}{X}", p.join(", "))
+            }
+            _ => String::new(),
+        };
+        println!("  {:<22} {}{}", label, tag(v), detail);
+    }
+    println!(
+        "\n{DIM}────{X}\n{R}{bugs} BUG{X} · {Y}{ung} UNGUARDED{X} · {G}{ver} VERIFIED{X} · {other} other"
+    );
+    i32::from(bugs > 0)
+}
+
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(|s| s.as_str()) == Some("aiv") {
@@ -443,13 +600,18 @@ fn main() {
             }
         }
     }
-    let file = match args.iter().find(|a| !a.starts_with("--")) {
-        Some(f) => f.clone(),
-        None => {
-            eprintln!("usage: cargo-aiv [--emit] [--prove '<expr>'] <file.rs>");
-            std::process::exit(2);
-        }
-    };
+    let files: Vec<String> = args.iter().filter(|a| !a.starts_with("--")).cloned().collect();
+    if files.is_empty() {
+        eprintln!("usage: cargo-aiv [--emit] [--prove '<expr>'] <file.rs>...");
+        std::process::exit(2);
+    }
+
+    // Batch mode: 2+ files → summary table, one exit code (only with plain verify).
+    if files.len() > 1 && !emit && prove.is_none() {
+        std::process::exit(batch(&files));
+    }
+
+    let file = files[0].clone();
     let src = fs::read_to_string(&file).unwrap_or_else(|e| {
         eprintln!("cannot read {file}: {e}");
         std::process::exit(2);
@@ -503,56 +665,12 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Verify: strict + realistic, then classify.
-    let (name, strict_lib) = match build(&src, false, None) {
-        Ok(v) => v,
-        Err(e) => {
-            println!("{Y}⏭  cargo-aiv: {e}{X}");
-            std::process::exit(1);
-        }
-    };
-    let (_, real_lib) = build(&src, true, None).unwrap();
-    println!("{DIM}verifying `{name}` (strict + realistic bounded model checking, ≤{TIMEOUT_SECS}s/mode)…{X}");
-    let base = std::env::temp_dir().join(format!("cargo-aiv-{name}"));
-    let (strict, real) = match (
-        run_kani(&base.join("strict"), &name, &strict_lib),
-        run_kani(&base.join("realistic"), &name, &real_lib),
-    ) {
-        (Some(s), Some(r)) => (s, r),
-        _ => {
-            println!(
-                "\n{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — verification didn't finish within {TIMEOUT_SECS}s/mode."
-            );
-            println!("     {DIM}too complex to prove at the current bounds (Vec≤{BOUND}, unwind {UNWIND}). Not a pass — not a bug.{X}");
-            std::process::exit(2);
-        }
-    };
-
-    let s = strict.get(&name).cloned().unwrap_or((false, vec![]));
-    let r = real.get(&name).cloned().unwrap_or((false, vec![]));
-    println!();
-    let code = if !s.0 {
-        println!("{G}{B}✅ VERIFIED{X}  `{name}` — panic-free for Vec≤{BOUND}, |val|≤{RANGE}.");
-        0
-    } else if r.0 {
-        println!("{R}{B}🔴 BUG{X}  `{name}` — panic reachable on ordinary input:");
-        for c in &r.1 {
-            println!("     {R}• {c}{X}");
-        }
-        if let Some((_a, vals)) = counterexample(&base.join("realistic"), &name) {
-            if !vals.is_empty() {
-                let pretty: Vec<String> = vals.iter().map(|v| interpret_val(v)).collect();
-                println!("     {DIM}reachable with input(s), in order: {}{X}", pretty.join(", "));
-            }
-        }
-        1
-    } else {
-        println!("{Y}{B}🟡 UNGUARDED{X}  `{name}` — safe on normal input, but overflows at i32::MAX/MIN:");
-        for c in &s.1 {
-            println!("     {Y}• {c}{X}");
-        }
-        println!("     {DIM}add a bounds guard or use checked_/saturating_ arithmetic.{X}");
-        0
-    };
-    std::process::exit(code);
+    // Single-file verify: strict + realistic, dual-mode classify, detailed report.
+    let peek = build(&src, false, None).map(|(n, _)| n).unwrap_or_default();
+    if !peek.is_empty() {
+        println!("{DIM}verifying `{peek}` (strict + realistic bounded model checking, ≤{TIMEOUT_SECS}s/mode)…{X}");
+    }
+    let (name, verdict) = verify_one(&src, 0);
+    let label = if name.is_empty() { file } else { name };
+    std::process::exit(print_detailed(&label, &verdict));
 }
