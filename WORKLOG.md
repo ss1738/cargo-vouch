@@ -305,3 +305,10 @@ JSON with a json_escape helper (quotes/backslash/control/unicode) — no serde d
 Progress lines suppressed under --json so stdout is pure JSON. Validated through
 python -m json.tool; witness uses the human-readable form ("0 (usize → empty
 vector)" → → escaped). 2 new unit tests (json_escape, verdict_json) → 13 green.
+
+## Week 2 — --help / --version (CLI hygiene)
+
+Added proper --help/-h (full usage: modes, verdicts, supported types, Kani install,
+docs link) and --version/-V (reads CARGO_PKG_VERSION). Bare invocation now prints
+help and exits 0 (standard convention) instead of a terse error. Expected of any
+published crate.

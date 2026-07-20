@@ -747,6 +747,37 @@ fn main() {
     if args.first().map(|s| s.as_str()) == Some("aiv") {
         args.remove(0); // invoked as `cargo aiv ...`
     }
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("cargo-aiv {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if args.is_empty() || args.iter().any(|a| a == "--help" || a == "-h") {
+        print!(
+            "\
+cargo-aiv {ver} — prove AI-generated Rust is panic-free (don't just test it)
+
+USAGE:
+    cargo-aiv <file.rs>...             verify one file, or many (batch table)
+    cargo-aiv --prove '<expr>' <file>  prove a postcondition over `result`/inputs
+    cargo-aiv --emit <file.rs>         print the generated Kani harness, don't run
+    cargo-aiv --json <file.rs>...      machine-readable results (single or batch)
+
+VERDICTS:
+    🔴 BUG          panic reachable on ordinary input (exit 1) — with a witness
+    🟡 UNGUARDED    overflows only at i32::MAX/MIN — add a guard (exit 0)
+    ✅ VERIFIED     provably panic-free within bounds (exit 0)
+    ⏱️  INCONCLUSIVE didn't finish within {t}s/mode (exit 2)
+    ⏭  unsupported  a type outside v0 scope — skipped cleanly
+
+Supported params: scalar ints, Vec<int>, Option<int>, &[int]/&mut [int], (int, int).
+Requires Kani: cargo install --locked kani-verifier && cargo kani setup
+Docs: https://github.com/ss1738/cargo-aiv
+",
+            ver = env!("CARGO_PKG_VERSION"),
+            t = TIMEOUT_SECS
+        );
+        return;
+    }
     let emit = args.iter().any(|a| a == "--emit");
     let json = args.iter().any(|a| a == "--json");
     // --prove '<expr>' consumes the following arg as the postcondition
