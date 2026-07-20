@@ -321,3 +321,16 @@ consts to atomics set once in main() before verification; RANGE stays const (it
 defines the strict/realistic UNGUARDED split). Verified --emit reflects both in
 the harness (any_bounded_vec::<i32>(5), #[kani::unwind(8)]) and the verdict message
 reads "Vec≤5". Honest framing: VERIFIED is a proof only within the chosen bounds.
+
+## Week 2 — --selftest (trust guard against false-green)
+
+A verifier that silently passes everything (Kani missing/misconfigured, output
+format drift) is the worst failure mode. Added `cargo-aiv --selftest`: runs a
+known-BUG (`v[0]` on empty vec) and a known-VERIFIED (identity) function and fails
+loudly if it can't tell them apart. PROVED both branches:
+  Kani installed      → PASS, exit 0
+  cargo/kani off PATH → both INCONCLUSIVE → FAIL, exit 1 (+ install hint)
+Wired into verify.yml before the gate so CI fails loudly instead of false-passing.
+Regression check earlier confirmed the canonical corpus verdicts unchanged after
+this session's 9 features (find_max→BUG, sum_vec→UNGUARDED, get_third→VERIFIED,
+divide→BUG). Suite 13 green, fmt/clippy clean.

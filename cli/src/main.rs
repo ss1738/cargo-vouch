@@ -758,6 +758,55 @@ fn batch(files: &[String], json: bool) -> i32 {
     i32::from(bugs > 0)
 }
 
+fn verdict_kind(v: &Verdict) -> &'static str {
+    match v {
+        Verdict::Verified => "VERIFIED",
+        Verdict::Bug(..) => "BUG",
+        Verdict::Unguarded(_) => "UNGUARDED",
+        Verdict::Inconclusive => "INCONCLUSIVE",
+        Verdict::Unsupported(_) => "UNSUPPORTED",
+    }
+}
+
+/// Sanity-check the Kani wiring in the user's environment: a verifier that silently
+/// passes everything (Kani missing / output format drifted) is worse than useless.
+/// Run a function that MUST be BUG and one that MUST be VERIFIED; fail loudly if the
+/// tool can't tell them apart.
+fn selftest() -> i32 {
+    println!("{DIM}cargo-aiv self-test — checking the Kani wiring in this environment…{X}");
+    let (_, bug) = verify_one("fn aiv_bug(v: Vec<i32>) -> i32 { v[0] }", 900);
+    let (_, safe) = verify_one("fn aiv_safe(x: i32) -> i32 { x }", 901);
+    let bug_ok = matches!(bug, Verdict::Bug(..));
+    let safe_ok = matches!(safe, Verdict::Verified);
+    let mark = |ok: bool| {
+        if ok {
+            format!("{G}OK{X}")
+        } else {
+            format!("{R}WRONG{X}")
+        }
+    };
+    println!(
+        "  known-bug  `v[0]` on empty vec → {:<12} expect BUG       {}",
+        verdict_kind(&bug),
+        mark(bug_ok)
+    );
+    println!(
+        "  known-safe identity fn         → {:<12} expect VERIFIED  {}",
+        verdict_kind(&safe),
+        mark(safe_ok)
+    );
+    if bug_ok && safe_ok {
+        println!("{G}{B}PASS{X} — Kani is wired correctly; verdicts are trustworthy.");
+        0
+    } else {
+        println!(
+            "{R}{B}FAIL{X} — the tool is NOT distinguishing known cases; DO NOT trust its results."
+        );
+        println!("     {DIM}Is Kani installed and set up?  cargo install --locked kani-verifier && cargo kani setup{X}");
+        1
+    }
+}
+
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(|s| s.as_str()) == Some("aiv") {
@@ -766,6 +815,9 @@ fn main() {
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("cargo-aiv {}", env!("CARGO_PKG_VERSION"));
         return;
+    }
+    if args.iter().any(|a| a == "--selftest") {
+        std::process::exit(selftest());
     }
     if args.is_empty() || args.iter().any(|a| a == "--help" || a == "-h") {
         print!(
@@ -777,6 +829,7 @@ USAGE:
     cargo-aiv --prove '<expr>' <file>  prove a postcondition over `result`/inputs
     cargo-aiv --emit <file.rs>         print the generated Kani harness, don't run
     cargo-aiv --json <file.rs>...      machine-readable results (single or batch)
+    cargo-aiv --selftest               check Kani is wired correctly (trust guard)
 
 OPTIONS:
     --bound N    max Vec/slice length to check (default 3)
