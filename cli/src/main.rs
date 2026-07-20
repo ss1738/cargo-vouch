@@ -131,7 +131,9 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
 }
 
 /// Build the full lib.rs (helper + fn + harness) for one mode. Err(msg) if unsupported.
-fn build(src: &str, realistic: bool) -> Result<(String, String), String> {
+/// `postcond`, if set, is a boolean Rust expr over `result` (and the input names)
+/// that becomes a proof obligation instead of the default panic-freedom check.
+fn build(src: &str, realistic: bool, postcond: Option<&str>) -> Result<(String, String), String> {
     let file = syn::parse_file(src).map_err(|e| format!("parse error: {e}"))?;
     let func = file
         .items
@@ -154,12 +156,19 @@ fn build(src: &str, realistic: bool) -> Result<(String, String), String> {
             args.push(arg_expr);
         }
     }
+    let call = args.join(", ");
+    let tail = match postcond {
+        Some(expr) => format!(
+            "    let result = {name}({call});\n    kani::assert({expr}, \"aiv postcondition\");\n    let _ = &result;"
+        ),
+        None => format!("    let _ = {name}({call});"),
+    };
     let lib = format!(
-        "{}\n\n{}\n\n#[kani::proof]\n#[kani::unwind({UNWIND})]\nfn verify_{name}() {{\n{}\n    let _ = {name}({});\n}}\n",
+        "{}\n\n{}\n\n#[kani::proof]\n#[kani::unwind({UNWIND})]\nfn verify_{name}() {{\n{}\n{}\n}}\n",
         helper(),
         src.trim(),
         inputs.join("\n"),
-        args.join(", "),
+        tail,
     );
     Ok((name, lib))
 }
@@ -253,12 +262,18 @@ fn counterexample(dir: &PathBuf, name: &str) -> Option<(String, Vec<String>)> {
         .output()
         .ok()?;
     let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
-    let (mut assertion, mut vals, mut in_block) = (String::new(), Vec::new(), false);
+    // Kani prints one `concrete_vals` block per failing check. Each block is a
+    // complete, independent witness — capture only the FIRST, or the values from
+    // different witnesses get merged into one meaningless list.
+    let (mut assertion, mut vals, mut in_block, mut done) =
+        (String::new(), Vec::new(), false, false);
     for ln in text.lines() {
-        if let Some(i) = ln.find("Check for `assertion`: \"") {
-            assertion = ln[i + "Check for `assertion`: \"".len()..].trim_end_matches('"').to_string();
+        if assertion.is_empty() {
+            if let Some(i) = ln.find("Check for `assertion`: \"") {
+                assertion = ln[i + "Check for `assertion`: \"".len()..].trim_end_matches('"').to_string();
+            }
         }
-        if ln.contains("let concrete_vals") {
+        if !done && ln.contains("let concrete_vals") {
             in_block = true;
             continue;
         }
@@ -269,6 +284,7 @@ fn counterexample(dir: &PathBuf, name: &str) -> Option<(String, Vec<String>)> {
             }
             if t.contains("];") {
                 in_block = false;
+                done = true; // first block captured — ignore any further blocks
             }
         }
     }
@@ -352,10 +368,24 @@ fn main() {
         args.remove(0); // invoked as `cargo aiv ...`
     }
     let emit = args.iter().any(|a| a == "--emit");
+    // --prove '<expr>' consumes the following arg as the postcondition
+    let mut prove: Option<String> = None;
+    if let Some(i) = args.iter().position(|a| a == "--prove") {
+        match args.get(i + 1).cloned() {
+            Some(expr) => {
+                prove = Some(expr);
+                args.drain(i..=i + 1);
+            }
+            None => {
+                eprintln!("usage: cargo-aiv --prove '<bool expr over result/inputs>' <file.rs>");
+                std::process::exit(2);
+            }
+        }
+    }
     let file = match args.iter().find(|a| !a.starts_with("--")) {
         Some(f) => f.clone(),
         None => {
-            eprintln!("usage: cargo-aiv [--emit] <file.rs>");
+            eprintln!("usage: cargo-aiv [--emit] [--prove '<expr>'] <file.rs>");
             std::process::exit(2);
         }
     };
@@ -365,7 +395,7 @@ fn main() {
     });
 
     if emit {
-        match build(&src, false) {
+        match build(&src, prove.is_some(), prove.as_deref()) {
             Ok((_, lib)) => println!("{lib}"),
             Err(e) => {
                 eprintln!("cargo-aiv: {e}");
@@ -375,15 +405,52 @@ fn main() {
         return;
     }
 
+    // --prove: check a postcondition over the return value (realistic bounds).
+    if let Some(expr) = prove {
+        let (name, lib) = match build(&src, true, Some(&expr)) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{Y}⏭  cargo-aiv: {e}{X}");
+                std::process::exit(1);
+            }
+        };
+        println!("{DIM}proving `{name}`: {B}{expr}{X}{DIM}  (all inputs, |val|≤{RANGE}, Vec≤{BOUND})…{X}");
+        let dir = std::env::temp_dir().join(format!("cargo-aiv-{name}-prove"));
+        let res = match run_kani(&dir, &name, &lib) {
+            Some(r) => r,
+            None => {
+                println!("\n{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — didn't finish within {TIMEOUT_SECS}s.");
+                std::process::exit(2);
+            }
+        };
+        let v = res.get(&name).cloned().unwrap_or((false, vec![]));
+        println!();
+        if !v.0 {
+            println!("{G}{B}✅ PROVEN{X}  `{name}` — {B}{expr}{X} holds for all inputs in bounds.");
+            std::process::exit(0);
+        }
+        println!("{R}{B}🔴 VIOLATED{X}  `{name}` — {B}{expr}{X} can be false (or the fn panics first):");
+        for c in &v.1 {
+            println!("     {R}• {c}{X}");
+        }
+        if let Some((_a, vals)) = counterexample(&dir, &name) {
+            if !vals.is_empty() {
+                let pretty: Vec<String> = vals.iter().map(|v| interpret_val(v)).collect();
+                println!("     {DIM}counterexample input(s), in order: {}{X}", pretty.join(", "));
+            }
+        }
+        std::process::exit(1);
+    }
+
     // Verify: strict + realistic, then classify.
-    let (name, strict_lib) = match build(&src, false) {
+    let (name, strict_lib) = match build(&src, false, None) {
         Ok(v) => v,
         Err(e) => {
             println!("{Y}⏭  cargo-aiv: {e}{X}");
             std::process::exit(1);
         }
     };
-    let (_, real_lib) = build(&src, true).unwrap();
+    let (_, real_lib) = build(&src, true, None).unwrap();
     println!("{DIM}verifying `{name}` (strict + realistic bounded model checking, ≤{TIMEOUT_SECS}s/mode)…{X}");
     let base = std::env::temp_dir().join(format!("cargo-aiv-{name}"));
     let (strict, real) = match (

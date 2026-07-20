@@ -44,6 +44,27 @@ $ cargo-aiv find_max.rs
      reachable with input(s), in order: 0 (usize → empty vector)
 ```
 
+## Prove properties, not just panic-freedom
+
+Panic-freedom is the default. To prove a **postcondition** about the return value, pass
+`--prove` with a boolean Rust expression over `result` (and the input names):
+
+```console
+$ cargo-aiv --prove 'result >= 0' abs_val.rs
+✅ PROVEN  `abs_val` — result >= 0 holds for all inputs in bounds.
+
+$ cargo-aiv --prove 'result.len() == xs.len()' double_all.rs
+✅ PROVEN  `double_all` — result.len() == xs.len() holds for all inputs in bounds.
+
+$ cargo-aiv --prove 'result > 0' abs_val.rs
+🔴 VIOLATED  `abs_val` — result > 0 can be false (or the fn panics first):
+     • aiv postcondition
+     counterexample input(s), in order: 0
+```
+
+`PROVEN` exits `0`, `VIOLATED` exits `1` — so a postcondition is a CI gate too. The
+property is checked for all inputs within the realistic bounds (values ≤ 1000, Vec ≤ 3).
+
 ## Install
 
 Requires [Kani](https://model-checking.github.io/kani/install-guide.html) (the verification engine):
