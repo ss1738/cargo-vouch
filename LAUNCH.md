@@ -66,6 +66,33 @@ $ cargo-aiv find_max.rs
 Zero annotations. Paste the function, get a verdict. It exits non-zero on a real bug, so it
 drops into CI.
 
+## Bonus: two functions that look identical, one panics
+
+After the corpus run I threw two dot-products at it — the kind of thing an AI emits
+without thinking about length:
+
+```rust
+fn dot_zip(a: &[i32], b: &[i32]) -> i32 {           // 🟡 UNGUARDED (overflow only)
+    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+}
+fn dot_index(a: Vec<i32>, b: Vec<i32>) -> i32 {     // 🔴 BUG
+    let mut s = 0;
+    for i in 0..a.len() { s += a[i] * b[i]; }        // b[i] panics if a is longer
+    s
+}
+```
+
+`dot_zip` is safe — `zip` stops at the shorter slice. `dot_index` panics the moment
+the lengths differ, and `cargo-aiv` prints the exact witness:
+
+```console
+🔴 BUG  `dot_index` — index out of bounds: the length is less than or equal to the given index
+     reachable with input(s), in order: 1 (usize → 1-element vector), -1, 0 (usize → empty vector)
+```
+
+`a = [-1], b = []`. Every hand-written test I'd write passes them the same length and
+sees nothing. The proof doesn't.
+
 ## The point
 
 Tests are probabilistic; proofs aren't. As more code comes from models that are confidently
