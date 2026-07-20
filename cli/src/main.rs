@@ -104,14 +104,22 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
         if let syn::Type::Slice(sl) = &*r.elem {
             let et = scalar_int(&sl.elem)?;
             let mutable = r.mutability.is_some();
-            let arg = if mutable { format!("&mut {name}") } else { format!("&{name}") };
+            let arg = if mutable {
+                format!("&mut {name}")
+            } else {
+                format!("&{name}")
+            };
             return Some((vec_binding(name, &et, realistic, mutable), arg));
         }
         // &Vec<int> / &mut Vec<int>
         if let Some(("Vec", inner)) = path_head(&r.elem).as_ref().map(|(b, a)| (b.as_str(), a)) {
             let et = scalar_int(inner.first()?)?;
             let mutable = r.mutability.is_some();
-            let arg = if mutable { format!("&mut {name}") } else { format!("&{name}") };
+            let arg = if mutable {
+                format!("&mut {name}")
+            } else {
+                format!("&{name}")
+            };
             return Some((vec_binding(name, &et, realistic, mutable), arg));
         }
     }
@@ -124,7 +132,10 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
         ("Option", [inner]) => {
             scalar_int(inner)?;
             let tystr = quote!(#ty).to_string().replace(' ', "");
-            Some((format!("    let {name}: {tystr} = kani::any();"), name.to_string()))
+            Some((
+                format!("    let {name}: {tystr} = kani::any();"),
+                name.to_string(),
+            ))
         }
         _ => None,
     }
@@ -138,7 +149,13 @@ fn build(src: &str, realistic: bool, postcond: Option<&str>) -> Result<(String, 
     let func = file
         .items
         .iter()
-        .find_map(|it| if let syn::Item::Fn(f) = it { Some(f) } else { None })
+        .find_map(|it| {
+            if let syn::Item::Fn(f) = it {
+                Some(f)
+            } else {
+                None
+            }
+        })
         .ok_or("no top-level function found")?;
     let name = func.sig.ident.to_string();
     let mut inputs = Vec::new();
@@ -150,7 +167,7 @@ fn build(src: &str, realistic: bool, postcond: Option<&str>) -> Result<(String, 
                 _ => return Err(format!("unsupported parameter pattern in `{name}`")),
             };
             let (line, arg_expr) = map_input(&pname, &pt.ty, realistic).ok_or_else(|| {
-                format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int])", quote!(#pt).to_string())
+                format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int])", quote!(#pt))
             })?;
             inputs.push(line);
             args.push(arg_expr);
@@ -235,7 +252,13 @@ fn run_kani(dir: &PathBuf, name: &str, lib: &str) -> Option<BTreeMap<String, (bo
             res.insert(cur.clone(), (false, Vec::new()));
         } else if !cur.is_empty() && ln.contains("Failed Checks:") {
             if let Some(e) = res.get_mut(&cur) {
-                e.1.push(ln.split("Failed Checks:").nth(1).unwrap_or("").trim().to_string());
+                e.1.push(
+                    ln.split("Failed Checks:")
+                        .nth(1)
+                        .unwrap_or("")
+                        .trim()
+                        .to_string(),
+                );
             }
         } else if !cur.is_empty() && ln.contains("VERIFICATION:-") {
             if let Some(e) = res.get_mut(&cur) {
@@ -261,7 +284,8 @@ fn counterexample(dir: &PathBuf, name: &str) -> Option<(String, Vec<String>)> {
         .current_dir(dir)
         .output()
         .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    let text =
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
     parse_playback(&text)
 }
 
@@ -278,7 +302,9 @@ fn parse_playback(text: &str) -> Option<(String, Vec<String>)> {
     for ln in text.lines() {
         if assertion.is_empty() {
             if let Some(i) = ln.find("Check for `assertion`: \"") {
-                assertion = ln[i + "Check for `assertion`: \"".len()..].trim_end_matches('"').to_string();
+                assertion = ln[i + "Check for `assertion`: \"".len()..]
+                    .trim_end_matches('"')
+                    .to_string();
             }
         }
         if !done && ln.contains("let concrete_vals") {
@@ -489,7 +515,10 @@ fn print_detailed(name: &str, v: &Verdict) -> i32 {
             }
             if !vals.is_empty() {
                 let pretty: Vec<String> = vals.iter().map(|v| interpret_val(v)).collect();
-                println!("     {DIM}reachable with input(s), in order: {}{X}", pretty.join(", "));
+                println!(
+                    "     {DIM}reachable with input(s), in order: {}{X}",
+                    pretty.join(", ")
+                );
             }
         }
         Verdict::Unguarded(checks) => {
@@ -500,7 +529,9 @@ fn print_detailed(name: &str, v: &Verdict) -> i32 {
             println!("     {DIM}add a bounds guard or use checked_/saturating_ arithmetic.{X}");
         }
         Verdict::Inconclusive => {
-            println!("{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — didn't finish within {TIMEOUT_SECS}s/mode.");
+            println!(
+                "{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — didn't finish within {TIMEOUT_SECS}s/mode."
+            );
             println!("     {DIM}too complex to prove at the current bounds (Vec≤{BOUND}, unwind {UNWIND}). Not a pass — not a bug.{X}");
         }
         Verdict::Unsupported(e) => {
@@ -600,7 +631,11 @@ fn main() {
             }
         }
     }
-    let files: Vec<String> = args.iter().filter(|a| !a.starts_with("--")).cloned().collect();
+    let files: Vec<String> = args
+        .iter()
+        .filter(|a| !a.starts_with("--"))
+        .cloned()
+        .collect();
     if files.is_empty() {
         eprintln!("usage: cargo-aiv [--emit] [--prove '<expr>'] <file.rs>...");
         std::process::exit(2);
@@ -642,7 +677,9 @@ fn main() {
         let res = match run_kani(&dir, &name, &lib) {
             Some(r) => r,
             None => {
-                println!("\n{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — didn't finish within {TIMEOUT_SECS}s.");
+                println!(
+                    "\n{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — didn't finish within {TIMEOUT_SECS}s."
+                );
                 std::process::exit(2);
             }
         };
@@ -652,14 +689,19 @@ fn main() {
             println!("{G}{B}✅ PROVEN{X}  `{name}` — {B}{expr}{X} holds for all inputs in bounds.");
             std::process::exit(0);
         }
-        println!("{R}{B}🔴 VIOLATED{X}  `{name}` — {B}{expr}{X} can be false (or the fn panics first):");
+        println!(
+            "{R}{B}🔴 VIOLATED{X}  `{name}` — {B}{expr}{X} can be false (or the fn panics first):"
+        );
         for c in &v.1 {
             println!("     {R}• {c}{X}");
         }
         if let Some((_a, vals)) = counterexample(&dir, &name) {
             if !vals.is_empty() {
                 let pretty: Vec<String> = vals.iter().map(|v| interpret_val(v)).collect();
-                println!("     {DIM}counterexample input(s), in order: {}{X}", pretty.join(", "));
+                println!(
+                    "     {DIM}counterexample input(s), in order: {}{X}",
+                    pretty.join(", ")
+                );
             }
         }
         std::process::exit(1);
