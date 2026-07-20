@@ -387,3 +387,18 @@ Writing them exposed a real robustness gap: the single-file temp dir was
 `cargo-aiv-{name}-{slot}`, so two concurrent processes verifying different files that
 both define `fn f` collided (cargo test runs tests in parallel → 3 failed). FIX:
 namespace the temp dir by process id too. All 6 e2e green; 15 unit tests green.
+
+## Week 2 — multi-function files (the real-world adoption gap)
+
+Biggest single limitation removed: build() only ever verified the FIRST fn in a file,
+so pointing cargo-aiv at a real source file silently checked one function. Now every
+top-level function is verified. run_kani already keyed results by fn name, so the core
+supported it — refactor: harness_for() (one fn) + build_all() (harness per supported fn,
+unsupported ones skipped but their body kept so callees resolve) + verify_file() →
+Vec<(name, verdict)>. classify() extracted for the per-fn dual-mode logic.
+
+single-file & batch both consume verify_file; batch records a row per function.
+--json unified to {"results":[...],"summary":{...}} for single AND batch (emit_json).
+Measured on a 4-fn file: add→UNGUARDED, first→BUG(witness [0]), identity→VERIFIED,
+parse(&str)→UNSUPPORTED — all four reported, exit 1 (bug present). 16 unit tests
+(added build_all test), 6 e2e, fmt + clippy --all-targets clean.

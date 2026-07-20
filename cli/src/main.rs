@@ -1,7 +1,8 @@
 //! cargo-aiv — prove AI-generated Rust is panic-free (don't just test it).
 //!
-//! Parses a single-fn `.rs` with `syn`, auto-generates a Kani proof harness,
-//! runs bounded model checking in TWO modes (strict + realistic), and reports:
+//! Parses a `.rs` file with `syn`, auto-generates a Kani proof harness for every
+//! top-level function, runs bounded model checking in TWO modes (strict +
+//! realistic), and reports per function:
 //!   🔴 BUG          panic reachable on ordinary input — fix it
 //!   🟡 UNGUARDED    overflow only at i32::MAX/MIN — add a guard (not a false alarm)
 //!   ✅ VERIFIED     panic-free within bounds
@@ -191,36 +192,31 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
     }
 }
 
-/// Build the full lib.rs (helper + fn + harness) for one mode. Err(msg) if unsupported.
-/// `postcond`, if set, is a boolean Rust expr over `result` (and the input names)
-/// that becomes a proof obligation instead of the default panic-freedom check.
-fn build(src: &str, realistic: bool, postcond: Option<&str>) -> Result<(String, String), String> {
-    let file = syn::parse_file(src).map_err(|e| format!("parse error: {e}"))?;
-    let func = file
-        .items
-        .iter()
-        .find_map(|it| {
-            if let syn::Item::Fn(f) = it {
-                Some(f)
-            } else {
-                None
-            }
-        })
-        .ok_or("no top-level function found")?;
+/// Generate just the Kani proof harness for ONE function. Err(msg) if any param
+/// is unsupported. `postcond`, if set, becomes the proof obligation instead of the
+/// default panic-freedom check.
+fn harness_for(
+    func: &syn::ItemFn,
+    realistic: bool,
+    postcond: Option<&str>,
+) -> Result<String, String> {
     let name = func.sig.ident.to_string();
     let mut inputs = Vec::new();
     let mut args = Vec::new();
     for arg in &func.sig.inputs {
-        if let syn::FnArg::Typed(pt) = arg {
-            let pname = match &*pt.pat {
-                syn::Pat::Ident(pi) => pi.ident.to_string(),
-                _ => return Err(format!("unsupported parameter pattern in `{name}`")),
-            };
-            let (line, arg_expr) = map_input(&pname, &pt.ty, realistic).ok_or_else(|| {
-                format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int])", quote!(#pt))
-            })?;
-            inputs.push(line);
-            args.push(arg_expr);
+        match arg {
+            syn::FnArg::Typed(pt) => {
+                let pname = match &*pt.pat {
+                    syn::Pat::Ident(pi) => pi.ident.to_string(),
+                    _ => return Err(format!("unsupported parameter pattern in `{name}`")),
+                };
+                let (line, arg_expr) = map_input(&pname, &pt.ty, realistic).ok_or_else(|| {
+                    format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int], tuples)", quote!(#pt))
+                })?;
+                inputs.push(line);
+                args.push(arg_expr);
+            }
+            syn::FnArg::Receiver(_) => return Err(format!("`{name}` is a method (self)")),
         }
     }
     let call = args.join(", ");
@@ -231,14 +227,74 @@ fn build(src: &str, realistic: bool, postcond: Option<&str>) -> Result<(String, 
         None => format!("    let _ = {name}({call});"),
     };
     let uw = unwind();
-    let lib = format!(
-        "{}\n\n{}\n\n#[kani::proof]\n#[kani::unwind({uw})]\nfn verify_{name}() {{\n{}\n{}\n}}\n",
-        helper(),
-        src.trim(),
+    Ok(format!(
+        "#[kani::proof]\n#[kani::unwind({uw})]\nfn verify_{name}() {{\n{}\n{}\n}}",
         inputs.join("\n"),
         tail,
-    );
+    ))
+}
+
+fn first_fn(file: &syn::File) -> Option<&syn::ItemFn> {
+    file.items.iter().find_map(|it| {
+        if let syn::Item::Fn(f) = it {
+            Some(f)
+        } else {
+            None
+        }
+    })
+}
+
+/// Build a lib.rs for a SINGLE function (the first one) — used by --emit / --prove.
+fn build(src: &str, realistic: bool, postcond: Option<&str>) -> Result<(String, String), String> {
+    let file = syn::parse_file(src).map_err(|e| format!("parse error: {e}"))?;
+    let func = first_fn(&file).ok_or("no top-level function found")?;
+    let name = func.sig.ident.to_string();
+    let harness = harness_for(func, realistic, postcond)?;
+    let lib = format!("{}\n\n{}\n\n{harness}\n", helper(), src.trim());
     Ok((name, lib))
+}
+
+/// Per-function build status: `None` = supported (harness emitted), `Some(reason)`
+/// = skipped, in source order.
+type FnStatuses = Vec<(String, Option<String>)>;
+
+/// Build a lib.rs with a harness for EVERY top-level function (real source files
+/// have many). Returns per-fn status plus the combined lib.
+fn build_all(src: &str, realistic: bool) -> Result<(FnStatuses, String), String> {
+    let file = syn::parse_file(src).map_err(|e| format!("parse error: {e}"))?;
+    let funcs: Vec<&syn::ItemFn> = file
+        .items
+        .iter()
+        .filter_map(|it| {
+            if let syn::Item::Fn(f) = it {
+                Some(f)
+            } else {
+                None
+            }
+        })
+        .collect();
+    if funcs.is_empty() {
+        return Err("no top-level function found".into());
+    }
+    let mut statuses = Vec::new();
+    let mut harnesses = Vec::new();
+    for f in &funcs {
+        let name = f.sig.ident.to_string();
+        match harness_for(f, realistic, None) {
+            Ok(h) => {
+                statuses.push((name, None));
+                harnesses.push(h);
+            }
+            Err(e) => statuses.push((name, Some(e))),
+        }
+    }
+    let lib = format!(
+        "{}\n\n{}\n\n{}\n",
+        helper(),
+        src.trim(),
+        harnesses.join("\n\n")
+    );
+    Ok((statuses, lib))
 }
 
 /// Run `cargo kani` in `dir`, draining stdout+stderr on threads (so a full pipe
@@ -414,6 +470,22 @@ mod tests {
         // realistic: clamp Some(_) so an extreme-only overflow reads as UNGUARDED, not BUG
         let (_, real) = build("fn f(o: Option<i32>) -> i32 { 0 }", true, None).unwrap();
         assert!(real.contains("if let Some(v) = o { kani::assume(v >= -1000 && v <= 1000); }"));
+    }
+
+    #[test]
+    fn build_all_emits_a_harness_per_function() {
+        use super::build_all;
+        let src = "fn a(x: i32) -> i32 { x }\nfn b(s: &str) -> i32 { 0 }\nfn c(v: Vec<i32>) -> i32 { v[0] }";
+        let (statuses, lib) = build_all(src, false).unwrap();
+        let names: Vec<&str> = statuses.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, vec!["a", "b", "c"]);
+        // a and c are supported → harnesses present; b (&str) is skipped with a reason
+        assert!(statuses[0].1.is_none());
+        assert!(statuses[1].1.is_some());
+        assert!(statuses[2].1.is_none());
+        assert!(lib.contains("fn verify_a()"));
+        assert!(lib.contains("fn verify_c()"));
+        assert!(!lib.contains("fn verify_b()"));
     }
 
     #[test]
@@ -632,6 +704,20 @@ fn verdict_json(label: &str, v: &Verdict) -> String {
     )
 }
 
+/// Emit `{"results":[...],"summary":{...}}` for a set of labelled verdicts.
+fn emit_json(results: &[(&str, &Verdict)]) {
+    let count = |p: fn(&Verdict) -> bool| results.iter().filter(|(_, v)| p(v)).count();
+    let bugs = count(|v| matches!(v, Verdict::Bug(..)));
+    let ung = count(|v| matches!(v, Verdict::Unguarded(_)));
+    let ver = count(|v| matches!(v, Verdict::Verified));
+    let other = results.len() - bugs - ung - ver;
+    let items: Vec<String> = results.iter().map(|(l, v)| verdict_json(l, v)).collect();
+    println!(
+        "{{\"results\":[{}],\"summary\":{{\"bug\":{bugs},\"unguarded\":{ung},\"verified\":{ver},\"other\":{other}}}}}",
+        items.join(",")
+    );
+}
+
 /// Keep only genuine panic/overflow checks. An "unwinding assertion" failure is NOT
 /// a panic — it means a loop wasn't fully unrolled within the unwind bound, so the
 /// check is incomplete. Unwinding-only failures must classify as INCONCLUSIVE, never
@@ -644,44 +730,66 @@ fn real_failures(checks: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Classify one function (panic-freedom mode): strict + realistic, then dual-mode
-/// classify. Pure of printing — used by both single-file and batch paths. `slot`
-/// namespaces the temp dir so parallel batch workers can't collide (even on
-/// same-named functions across files).
-fn verify_one(src: &str, slot: usize) -> (String, Verdict) {
-    let (name, strict_lib) = match build(src, false, None) {
-        Ok(v) => v,
-        Err(e) => return (String::new(), Verdict::Unsupported(e)),
-    };
-    let real_lib = build(src, true, None).unwrap().1;
-    // Namespace by PID as well as slot so two concurrent cargo-aiv processes working
-    // on different files that both define `fn f` can't collide in the temp dir.
-    let base = std::env::temp_dir().join(format!("cargo-aiv-{}-{name}-{slot}", std::process::id()));
-    let (strict, real) = match (
-        run_kani(&base.join("strict"), &name, &strict_lib),
-        run_kani(&base.join("realistic"), &name, &real_lib),
-    ) {
-        (Some(s), Some(r)) => (s, r),
-        _ => return (name, Verdict::Inconclusive),
-    };
-    let s = strict.get(&name).cloned().unwrap_or((false, vec![]));
-    let r = real.get(&name).cloned().unwrap_or((false, vec![]));
+type KaniMap = BTreeMap<String, (bool, Vec<String>)>;
+
+/// Dual-mode classify for one function from its strict+realistic Kani results.
+fn classify(name: &str, realistic_dir: &PathBuf, strict: &KaniMap, real: &KaniMap) -> Verdict {
+    let s = strict.get(name).cloned().unwrap_or((false, vec![]));
+    let r = real.get(name).cloned().unwrap_or((false, vec![]));
     let s_real = real_failures(&s.1);
     let r_real = real_failures(&r.1);
-    let verdict = if !s.0 {
+    if !s.0 {
         Verdict::Verified
     } else if s_real.is_empty() {
         // strict failed only on unwinding assertions — couldn't fully check the loop
         Verdict::Inconclusive
     } else if !r_real.is_empty() {
-        let vals = counterexample(&base.join("realistic"), &name)
+        let vals = counterexample(realistic_dir, name)
             .map(|(_, v)| v)
             .unwrap_or_default();
         Verdict::Bug(r_real, vals)
     } else {
         Verdict::Unguarded(s_real)
+    }
+}
+
+/// Verify EVERY top-level function in a source file (real files have many). Returns
+/// (name, verdict) per function in source order. `slot` + PID namespace the temp dir
+/// so concurrent workers never collide.
+fn verify_file(src: &str, slot: usize) -> Vec<(String, Verdict)> {
+    let (statuses, strict_lib) = match build_all(src, false) {
+        Ok(v) => v,
+        Err(e) => return vec![(String::new(), Verdict::Unsupported(e))],
     };
-    (name, verdict)
+    let real_lib = build_all(src, true).unwrap().1;
+    let base = std::env::temp_dir().join(format!("cargo-aiv-{}-multi-{slot}", std::process::id()));
+    let realistic_dir = base.join("realistic");
+    let (strict, real) = match (
+        run_kani(&base.join("strict"), "multi", &strict_lib),
+        run_kani(&realistic_dir, "multi", &real_lib),
+    ) {
+        (Some(s), Some(r)) => (s, r),
+        // whole-file run timed out: supported fns are inconclusive, unsupported stay so
+        _ => {
+            return statuses
+                .into_iter()
+                .map(|(n, st)| match st {
+                    Some(e) => (n, Verdict::Unsupported(e)),
+                    None => (n, Verdict::Inconclusive),
+                })
+                .collect()
+        }
+    };
+    statuses
+        .into_iter()
+        .map(|(name, st)| match st {
+            Some(e) => (name, Verdict::Unsupported(e)),
+            None => {
+                let v = classify(&name, &realistic_dir, &strict, &real);
+                (name, v)
+            }
+        })
+        .collect()
 }
 
 /// Exit code convention shared by single-file and batch: BUG → 1, else 0
@@ -774,14 +882,20 @@ fn batch(files: &[String], json: bool) -> i32 {
                     break;
                 }
                 let f = &files[i];
-                let (label, v) = match fs::read_to_string(f) {
+                match fs::read_to_string(f) {
                     Ok(src) => {
-                        let (name, v) = verify_one(&src, i);
-                        (if name.is_empty() { f.clone() } else { name }, v)
+                        // one file can hold many functions — record a row per function
+                        for (name, v) in verify_file(&src, i) {
+                            let label = if name.is_empty() { f.clone() } else { name };
+                            results.lock().unwrap().push((i, label, v));
+                        }
                     }
-                    Err(e) => (f.clone(), Verdict::Unsupported(e.to_string())),
-                };
-                results.lock().unwrap().push((i, label, v));
+                    Err(e) => results.lock().unwrap().push((
+                        i,
+                        f.clone(),
+                        Verdict::Unsupported(e.to_string()),
+                    )),
+                }
             });
         }
     });
@@ -797,11 +911,8 @@ fn batch(files: &[String], json: bool) -> i32 {
         }
     }
     if json {
-        let items: Vec<String> = out.iter().map(|(_, l, v)| verdict_json(l, v)).collect();
-        println!(
-            "{{\"results\":[{}],\"summary\":{{\"bug\":{bugs},\"unguarded\":{ung},\"verified\":{ver},\"other\":{other}}}}}",
-            items.join(",")
-        );
+        let refs: Vec<(&str, &Verdict)> = out.iter().map(|(_, l, v)| (l.as_str(), v)).collect();
+        emit_json(&refs);
         return i32::from(bugs > 0);
     }
     for (_, label, v) in &out {
@@ -836,8 +947,9 @@ fn verdict_kind(v: &Verdict) -> &'static str {
 /// tool can't tell them apart.
 fn selftest() -> i32 {
     println!("{DIM}cargo-aiv self-test — checking the Kani wiring in this environment…{X}");
-    let (_, bug) = verify_one("fn aiv_bug(v: Vec<i32>) -> i32 { v[0] }", 900);
-    let (_, safe) = verify_one("fn aiv_safe(x: i32) -> i32 { x }", 901);
+    let one = |src: &str, slot| verify_file(src, slot).pop().map(|(_, v)| v).unwrap();
+    let bug = one("fn aiv_bug(v: Vec<i32>) -> i32 { v[0] }", 900);
+    let safe = one("fn aiv_safe(x: i32) -> i32 { x }", 901);
     let bug_ok = matches!(bug, Verdict::Bug(..));
     let safe_ok = matches!(safe, Verdict::Verified);
     let mark = |ok: bool| {
@@ -1035,16 +1147,37 @@ Docs: https://github.com/ss1738/cargo-aiv
         std::process::exit(1);
     }
 
-    // Single-file verify: strict + realistic, dual-mode classify, detailed report.
-    let peek = build(&src, false, None).map(|(n, _)| n).unwrap_or_default();
-    if !peek.is_empty() && !json {
-        println!("{DIM}verifying `{peek}` (strict + realistic bounded model checking, ≤{TIMEOUT_SECS}s/mode)…{X}");
+    // Single-file verify: every top-level function, dual-mode classify.
+    if !json {
+        println!("{DIM}verifying `{file}` (strict + realistic bounded model checking, ≤{TIMEOUT_SECS}s/mode)…{X}");
     }
-    let (name, verdict) = verify_one(&src, 0);
-    let label = if name.is_empty() { file } else { name };
+    let results = verify_file(&src, 0);
+    let label = |n: &str| {
+        if n.is_empty() {
+            file.clone()
+        } else {
+            n.to_string()
+        }
+    };
+    let bugs = results
+        .iter()
+        .filter(|(_, v)| matches!(v, Verdict::Bug(..)))
+        .count();
     if json {
-        println!("{}", verdict_json(&label, &verdict));
-        std::process::exit(verdict_code(&verdict));
+        let labels: Vec<(String, &Verdict)> = results.iter().map(|(n, v)| (label(n), v)).collect();
+        let refs: Vec<(&str, &Verdict)> = labels.iter().map(|(l, v)| (l.as_str(), *v)).collect();
+        emit_json(&refs);
+        std::process::exit(i32::from(bugs > 0));
     }
-    std::process::exit(print_detailed(&label, &verdict));
+    let multi = results.len() > 1;
+    let mut code = 0;
+    for (name, verdict) in &results {
+        let c = print_detailed(&label(name), verdict);
+        if c == 1 {
+            code = 1;
+        } else if c == 2 && !multi {
+            code = 2;
+        }
+    }
+    std::process::exit(code);
 }

@@ -3,9 +3,9 @@
 **Prove AI-generated Rust is panic-free — don't just test it.**
 
 AI writes an exploding share of your code, and `cargo test` only checks the cases you
-thought of. `cargo-aiv` auto-generates a formal-verification harness for a function, runs
-bounded model checking (via [Kani](https://github.com/model-checking/kani)), and tells you
-whether it can *panic or overflow* — for **all** inputs in bounds, not a sample.
+thought of. `cargo-aiv` auto-generates a formal-verification harness for **every function
+in a file**, runs bounded model checking (via [Kani](https://github.com/model-checking/kani)),
+and tells you whether each can *panic or overflow* — for **all** inputs in bounds, not a sample.
 
 ```console
 $ cargo-aiv sum_vec.rs
@@ -100,8 +100,9 @@ $ cargo-aiv --json src/*.rs | jq '.summary'
 { "bug": 1, "unguarded": 0, "verified": 1, "other": 0 }
 ```
 
-Each result is `{"name", "verdict", "checks", "witness"}`; batch also emits a
-`summary`. Exit code is unchanged (1 if any BUG).
+Output is `{"results": [{"name", "verdict", "checks", "witness"}, …], "summary": {…}}`
+— one entry per function (a file with many functions yields many results). Exit code is
+unchanged (1 if any BUG).
 
 ## Prove properties, not just panic-freedom
 
@@ -152,7 +153,8 @@ cargo-aiv path/to/function.rs
 
 ## Scope (v0 — honest about the boundaries)
 
-**Supported:** safe Rust, single function, parameters of scalar ints (`i8..u64`, `bool`),
+**Supported:** safe Rust, every free function in a file (methods/`self` skipped),
+parameters of scalar ints (`i8..u64`, `bool`),
 `Vec<int>`, `Option<int>`, int **slices** (`&[int]`, `&mut [int]`, `&Vec<int>` — mutation
 through `&mut` is verified too), and **tuples of scalar ints** (`(i32, i32)`, …) as params;
 tuple returns work in both default and `--prove` mode (`result.0`, `result.1`). Property:
