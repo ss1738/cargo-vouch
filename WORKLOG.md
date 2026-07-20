@@ -159,3 +159,19 @@ iterator-heavy fns (map/filter/into_iter/collect/enumerate/max_by_key/scan/fold)
   New verdict ⏱️ **INCONCLUSIVE** (exit 2) — "not a pass, not a bug." Proved the
   branch fires by dropping the cap to 3s against the 51s fn (INCONCLUSIVE, exit 2),
   then confirmed a fast fn still returns a real verdict at 120s.
+
+## Week 2 — slice params (&[int], &mut [int], &Vec<int>)
+
+AI Rust takes slices constantly; v0 rejected them as ⏭. Added support: a slice
+param binds a symbolic `Vec<int>` and is passed by reference (`&v` / `&mut v`,
+which coerce to `&[T]` / `&mut [T]`). `map_input` now returns (binding, arg_expr)
+so by-ref args are distinguished from by-value. Measured (corpus_slice/):
+
+| fn | param | verdict |
+|---|---|---|
+| slice_sum | `&[i32]` | 🟡 UNGUARDED (sum overflow) |
+| double_in_place | `&mut [i32]` | 🟡 UNGUARDED (mutation verified through &mut) |
+| third_oob | `&[i32]`, `xs[2]` | 🔴 BUG (index OOB, counterexample captured) |
+
+Regression: original Vec corpus verdicts unchanged (find_max→BUG, sum_vec→
+UNGUARDED, get_third→VERIFIED, divide→BUG, parse_number→⏭). No breakage.

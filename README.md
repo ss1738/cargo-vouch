@@ -73,8 +73,9 @@ cargo-aiv path/to/function.rs
 ## Scope (v0 — honest about the boundaries)
 
 **Supported:** safe Rust, single function, parameters of scalar ints (`i8..u64`, `bool`),
-`Vec<int>`, `Option<int>`. Property: **panic-freedom + integer overflow**, bounded (Vec ≤ 3,
-loops unwound ≤ 5). **Idiomatic iterator chains verify fine** — `.iter().map().filter()
+`Vec<int>`, `Option<int>`, and int **slices** — `&[int]`, `&mut [int]`, `&Vec<int>` (mutation
+through `&mut` is verified too). Property: **panic-freedom + integer overflow**, bounded
+(Vec ≤ 3, loops unwound ≤ 5). **Idiomatic iterator chains verify fine** — `.iter().map().filter()
 .collect()`, `.fold()`, `.scan()`, `.enumerate()`, `.max_by_key()` all lower into the bounded
 model; they don't path-explode, though heavy adapter chains can take ~30–50s. Past 120s/mode
 the tool reports ⏱️ INCONCLUSIVE instead of hanging.
