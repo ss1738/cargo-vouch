@@ -189,3 +189,20 @@ Conservative on purpose — only annotates what it can identify unambiguously;
 "reachable with input(s), in order: 0 (usize → empty vector)" — the tool says
 what the README used to hand-annotate. Added 3 unit tests (all green) — first
 test coverage in the crate.
+
+## Week 2 — multi-collection params (already work; great demo case)
+
+Tested two-collection signatures (corpus_multi/). They already work — map_input
+runs per-param, so N independent symbolic vecs/slices are generated:
+
+| fn | verdict | why |
+|---|---|---|
+| dot_zip(&[i32], &[i32]) | 🟡 UNGUARDED | zip stops at shorter slice — safe |
+| dot_index(Vec, Vec) | 🔴 BUG | b[i] over a.len() → OOB when a longer |
+| add_scalar(&[i32], i32) | 🟡 UNGUARDED | mixed slice+scalar params fine |
+
+dot_index is the standout demo: the counterexample reads
+"1 (usize → 1-element vector), -1, 0 (usize → empty vector)" = a=[-1], b=[].
+Two dot-products that look equivalent — zip is safe, index panics on length
+mismatch — and cargo test with equal-length inputs never catches it. Added to
+LAUNCH.md as the "two functions that look identical" hook.
