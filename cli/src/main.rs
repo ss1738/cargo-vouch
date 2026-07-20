@@ -123,6 +123,32 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
             return Some((vec_binding(name, &et, realistic, mutable), arg));
         }
     }
+    // (i32, u8, ...) — a tuple of scalar ints. Bind one kani::any() per element,
+    // with per-element realistic assumes on the tuple fields.
+    if let syn::Type::Tuple(tup) = ty {
+        if tup.elems.is_empty() {
+            return None; // unit () — nothing to synthesize
+        }
+        let mut types = Vec::new();
+        for el in &tup.elems {
+            types.push(scalar_int(el)?); // any non-scalar element ⇒ unsupported
+        }
+        let anys: Vec<&str> = types.iter().map(|_| "kani::any()").collect();
+        let tystr = format!("({})", types.join(", "));
+        let mut line = format!("    let {name}: {tystr} = ({});", anys.join(", "));
+        if realistic {
+            for (i, s) in types.iter().enumerate() {
+                if s.starts_with('i') {
+                    line += &format!(
+                        "\n    kani::assume({name}.{i} >= -{RANGE} && {name}.{i} <= {RANGE});"
+                    );
+                } else if s.starts_with('u') {
+                    line += &format!("\n    kani::assume({name}.{i} <= {RANGE});");
+                }
+            }
+        }
+        return Some((line, name.to_string()));
+    }
     let (base, args) = path_head(ty)?;
     match (base.as_str(), args.as_slice()) {
         ("Vec", [inner]) => {
@@ -327,7 +353,35 @@ fn parse_playback(text: &str) -> Option<(String, Vec<String>)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{interpret_val, parse_playback};
+    use super::{build, interpret_val, map_input, parse_playback};
+
+    #[test]
+    fn tuple_param_binds_one_any_per_element() {
+        let (name, lib) = build("fn f(p: (i32, u8)) -> i32 { 0 }", false, None).unwrap();
+        assert_eq!(name, "f");
+        assert!(lib.contains("let p: (i32, u8) = (kani::any(), kani::any());"));
+        assert!(lib.contains("let _ = f(p);"));
+    }
+
+    #[test]
+    fn slice_param_passes_by_reference() {
+        let (_, lib) = build("fn g(xs: &[i32]) -> i32 { 0 }", false, None).unwrap();
+        assert!(lib.contains("let xs: Vec<i32> = any_bounded_vec::<i32>(3);"));
+        assert!(lib.contains("let _ = g(&xs);"));
+    }
+
+    #[test]
+    fn postcondition_binds_result_and_asserts() {
+        let (_, lib) = build("fn h(a: i32) -> i32 { a }", true, Some("result >= a")).unwrap();
+        assert!(lib.contains("let result = h(a);"));
+        assert!(lib.contains(r#"kani::assert(result >= a, "aiv postcondition");"#));
+    }
+
+    #[test]
+    fn unsupported_param_is_rejected() {
+        assert!(map_input("s", &syn::parse_str("&str").unwrap(), false).is_none());
+        assert!(build("fn f(s: &str) {}", false, None).is_err());
+    }
 
     // Two failing checks → two concrete_vals blocks. We must keep only the first
     // witness, not merge tokens across blocks (the find_max --prove regression).

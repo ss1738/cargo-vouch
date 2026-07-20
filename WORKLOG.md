@@ -275,3 +275,17 @@ Two workflows:
 Seeded verify/ with the two provably-clean corpus fns (get_third, remove_last) so
 the repo's own gate is green (verified: 0 BUG, 2 VERIFIED, exit 0). README gained
 a copy-paste GitHub Actions section.
+
+## Week 2 — tuple params + build() unit tests
+
+Added Type::Tuple support to map_input: a tuple of scalar ints binds one
+kani::any() per element with per-field realistic assumes (name.0, name.1, ...).
+Tuple RETURNS already worked (return is discarded in default mode; bound as
+`result` in --prove). Measured (corpus_tuple/):
+  manhattan((i32,i32),(i32,i32)) → UNGUARDED (abs overflow)
+  swap_div((i32,i32)) p.0/p.1     → BUG, witness p=(-1,0) (div by zero)
+  divmod(i32,i32)->(i32,i32)      → BUG, witness (-1,0)
+  order(i32,i32)->(i32,i32) --prove 'result.0<=result.1' → PROVEN
+
+Added 4 build()/map_input() unit tests (tuple binding, slice by-ref, postcondition
+result binding, &str rejection). Suite now 11 green. fmt + clippy -D warnings clean.
