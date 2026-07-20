@@ -126,3 +126,12 @@ Now: verdict + exact failure + triggering input, in one command.
 **Next:** interpret raw values into readable form ("empty vector", "b = 0"); README +
 `cargo install cargo-aiv` (crates.io); the "Panic Log" launch post (3 AI-'correct' fns that
 overflow); sanity/meta-soundness mode; widen corpus (iterators, structs).
+
+### Shippable: install + README + LICENSE  ✅
+**Done:** `cargo install --path cli` works — `cargo-aiv` is a real installed command.
+Wrote README.md (hook: the sum_vec "AI said correct, Kani proved overflow" demo; install
+w/ Kani prereq; verdicts; how-it-works; honest v0 scope) + MIT LICENSE. **The tool is now
+publishable to crates.io / GitHub.**
+
+**Next (to actually launch):** publish to crates.io; the "Panic Log" HN post; value
+interpretation (0ul → "empty vector"); sanity mode; widen corpus (iterators, structs).
