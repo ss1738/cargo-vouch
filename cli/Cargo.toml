@@ -1,0 +1,13 @@
+[package]
+name = "cargo-aiv"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "cargo-aiv"
+path = "src/main.rs"
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

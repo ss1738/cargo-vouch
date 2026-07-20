@@ -86,3 +86,17 @@ generator, precondition classifier. The technical core is de-risked and working 
 
 **Next (Week 2, MVP):** port harness-gen to Rust/`syn`; counterexample→source-line mapping;
 package as `cargo install cargo-aiv`; add the sanity/meta-soundness mode; widen corpus.
+
+## Week 2 — MVP
+
+### Port harness generator to Rust/`syn`  ✅ (the product core, no more Python)
+**Done:** `cli/` — real `cargo-aiv` binary (syn 2.x). Parses a single-fn `.rs`, maps param
+types → symbolic inputs (scalar ints, `Vec<int>`, `Option<int>`), emits `<fn> + #[kani::proof]`.
+- `cargo-aiv corpus/06_find_max.rs` → correct harness (`any_bounded_vec::<i32>(3)`).
+- `cargo-aiv corpus/07_parse_number.rs` (&str) → **cleanly rejected**, exit 1, clear message.
+- **End-to-end proven:** `cargo-aiv find_max.rs | cargo kani` → catches `unwrap` on `None`.
+  The whole generate→verify pipeline is self-contained Rust now.
+
+**Next (Week 2 remainder):** counterexample→source-line mapping (Kani trace → "panics at
+line N with numbers=vec![]"); wrap generate+kani+classify into one `cargo aiv verify <file>`
+command; fold the dual-mode classifier into the Rust tool; sanity/meta-soundness mode.
