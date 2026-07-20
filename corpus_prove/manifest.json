@@ -1,0 +1,10 @@
+{
+  "note": "Reproduce: cargo-aiv --prove '<property>' corpus_prove/<file>.rs",
+  "cases": [
+    {"file": "abs_val.rs",    "property": "result >= 0",              "expect": "PROVEN"},
+    {"file": "abs_val.rs",    "property": "result > 0",               "expect": "VIOLATED (x=0)"},
+    {"file": "add2.rs",       "property": "result == a + b",          "expect": "PROVEN"},
+    {"file": "double_all.rs", "property": "result.len() == xs.len()", "expect": "PROVEN"},
+    {"file": "../corpus/06_find_max.rs", "property": "result >= 0",   "expect": "VIOLATED ([-1])"}
+  ]
+}
