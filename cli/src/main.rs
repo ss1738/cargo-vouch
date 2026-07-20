@@ -403,6 +403,17 @@ mod tests {
     }
 
     #[test]
+    fn option_payload_clamped_in_realistic_not_strict() {
+        // strict: no clamp on the Some payload
+        let (_, strict) = build("fn f(o: Option<i32>) -> i32 { 0 }", false, None).unwrap();
+        assert!(strict.contains("let o: Option<i32> = kani::any();"));
+        assert!(!strict.contains("if let Some(v) = o"));
+        // realistic: clamp Some(_) so an extreme-only overflow reads as UNGUARDED, not BUG
+        let (_, real) = build("fn f(o: Option<i32>) -> i32 { 0 }", true, None).unwrap();
+        assert!(real.contains("if let Some(v) = o { kani::assume(v >= -1000 && v <= 1000); }"));
+    }
+
+    #[test]
     fn unsupported_param_is_rejected() {
         assert!(map_input("s", &syn::parse_str("&str").unwrap(), false).is_none());
         assert!(build("fn f(s: &str) {}", false, None).is_err());
