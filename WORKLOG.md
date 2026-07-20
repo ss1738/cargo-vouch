@@ -206,3 +206,27 @@ dot_index is the standout demo: the counterexample reads
 Two dot-products that look equivalent — zip is safe, index panics on length
 mismatch — and cargo test with equal-length inputs never catches it. Added to
 LAUNCH.md as the "two functions that look identical" hook.
+
+## Week 2 — property proving (--prove) + counterexample parser fix
+
+Big capability jump: from panic-checker to property-verifier. New flag
+`--prove '<bool expr over result + inputs>'` turns the return value into a proof
+obligation via `kani::assert`. Runs in realistic bounds.
+
+  ✅ PROVEN   (exit 0) — property holds for all inputs in bounds
+  🔴 VIOLATED (exit 1) — property can be false (or fn panics first) + witness
+  ⏱️ INCONCLUSIVE (exit 2) — didn't finish in time
+
+Measured:
+  abs_val   --prove 'result >= 0'            → PROVEN
+  abs_val   --prove 'result > 0'             → VIOLATED, witness x=0
+  add2      --prove 'result == a + b'        → PROVEN (property over inputs)
+  double_all --prove 'result.len()==xs.len()'→ PROVEN (Vec return + input ref)
+  find_max  --prove 'result >= 0'            → VIOLATED, witness [-1]
+
+FIX found while testing: Kani emits one concrete_vals block PER failing check.
+counterexample() was concatenating tokens across all blocks → find_max prove
+showed a merged 3-token nonsense witness. Now captures only the first block.
+Verified the fix doesn't truncate legit multi-PARAM witnesses (dot_index still
+shows a=[-1], b=[] — 3 tokens from one block). build() now takes an optional
+postcondition; all call sites updated. Unit tests still green.
