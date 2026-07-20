@@ -100,3 +100,18 @@ types → symbolic inputs (scalar ints, `Vec<int>`, `Option<int>`), emits `<fn> 
 **Next (Week 2 remainder):** counterexample→source-line mapping (Kani trace → "panics at
 line N with numbers=vec![]"); wrap generate+kani+classify into one `cargo aiv verify <file>`
 command; fold the dual-mode classifier into the Rust tool; sanity/meta-soundness mode.
+
+### Unified `cargo-aiv <file>` command  ✅ (the MVP experience)
+**Done:** the Rust binary now orchestrates the whole flow in one command:
+generate harness → run Kani in strict + realistic modes → classify → colored verdict.
+- `cargo-aiv corpus/06_find_max.rs`   → 🔴 BUG (unwrap on None, reachable)
+- `cargo-aiv corpus/01_sum_vec.rs`    → 🟡 UNGUARDED (overflow only at i32::MAX; "add a guard")
+- `cargo-aiv corpus/02_get_third.rs`  → ✅ VERIFIED
+- `cargo-aiv corpus/07_parse_number`  → ⏭ unsupported (clean reject)
+- **Exits non-zero on BUG** → drops into CI as a gate.
+The dual-mode classifier is now inside the tool; no external scripts needed. This is the
+`cargo install`-able MVP.
+
+**Next:** counterexample→source-line + input-value mapping ("panics at line 12 with
+numbers=vec![]"); README + publish to crates.io; sanity/meta-soundness mode; widen corpus
+(iterators, structs).
