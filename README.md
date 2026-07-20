@@ -44,6 +44,30 @@ $ cargo-aiv find_max.rs
      reachable with input(s), in order: 0 (usize → empty vector)
 ```
 
+## Batch mode (CI over a whole crate)
+
+Pass more than one file and `cargo-aiv` verifies them all in parallel, prints a
+summary table, and exits `1` if **any** function has a BUG — a single gate for a
+directory of functions:
+
+```console
+$ cargo-aiv src/*.rs
+cargo-aiv batch — 6 file(s), 3 workers, ≤120s/mode each
+
+  dot_zip                🟡 UNGUARDED
+  dot_index              🔴 BUG  ← 1 (usize → 1-element vector), -1, 0 (usize → empty vector)
+  add_scalar             🟡 UNGUARDED
+  slice_sum              🟡 UNGUARDED
+  third                  🔴 BUG  ← 0 (usize → empty vector)
+────
+2 BUG · 3 UNGUARDED · 1 VERIFIED · 0 other
+```
+
+Concurrency is deliberately capped low (~cores/4, ≤3): Kani/CBMC is heavy and
+already multi-threaded, so running too many at once starves each solver past its
+timeout and yields false INCONCLUSIVE. Low-but-parallel is both correct and ~2×
+faster than sequential.
+
 ## Prove properties, not just panic-freedom
 
 Panic-freedom is the default. To prove a **postcondition** about the return value, pass
