@@ -173,12 +173,19 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
             Some((vec_binding(name, &et, realistic, false), name.to_string()))
         }
         ("Option", [inner]) => {
-            scalar_int(inner)?;
+            let et = scalar_int(inner)?;
             let tystr = quote!(#ty).to_string().replace(' ', "");
-            Some((
-                format!("    let {name}: {tystr} = kani::any();"),
-                name.to_string(),
-            ))
+            let mut line = format!("    let {name}: {tystr} = kani::any();");
+            // Clamp the Some(_) payload in realistic mode too — otherwise an Option
+            // overflow at i32::MAX is misreported as BUG instead of UNGUARDED.
+            if realistic && et.starts_with('i') {
+                line += &format!(
+                    "\n    if let Some(v) = {name} {{ kani::assume(v >= -{RANGE} && v <= {RANGE}); }}"
+                );
+            } else if realistic && et.starts_with('u') {
+                line += &format!("\n    if let Some(v) = {name} {{ kani::assume(v <= {RANGE}); }}");
+            }
+            Some((line, name.to_string()))
         }
         _ => None,
     }
