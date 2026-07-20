@@ -169,6 +169,44 @@ fn run_kani(dir: &PathBuf, name: &str, lib: &str) -> BTreeMap<String, (bool, Vec
     res
 }
 
+/// Re-run a failing harness with concrete playback to extract the triggering input.
+/// Returns (assertion message, symbolic input values in order).
+fn counterexample(dir: &PathBuf, name: &str) -> Option<(String, Vec<String>)> {
+    let out = Command::new("cargo")
+        .args([
+            "kani",
+            "--harness",
+            &format!("verify_{name}"),
+            "-Z",
+            "concrete-playback",
+            "--concrete-playback=print",
+        ])
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
+    let (mut assertion, mut vals, mut in_block) = (String::new(), Vec::new(), false);
+    for ln in text.lines() {
+        if let Some(i) = ln.find("Check for `assertion`: \"") {
+            assertion = ln[i + "Check for `assertion`: \"".len()..].trim_end_matches('"').to_string();
+        }
+        if ln.contains("let concrete_vals") {
+            in_block = true;
+            continue;
+        }
+        if in_block {
+            let t = ln.trim();
+            if t.starts_with("//") {
+                vals.push(t.trim_start_matches("//").trim().to_string());
+            }
+            if t.contains("];") {
+                in_block = false;
+            }
+        }
+    }
+    (!assertion.is_empty() || !vals.is_empty()).then_some((assertion, vals))
+}
+
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(|s| s.as_str()) == Some("aiv") {
@@ -222,6 +260,11 @@ fn main() {
         println!("{R}{B}🔴 BUG{X}  `{name}` — panic reachable on ordinary input:");
         for c in &r.1 {
             println!("     {R}• {c}{X}");
+        }
+        if let Some((_a, vals)) = counterexample(&base.join("realistic"), &name) {
+            if !vals.is_empty() {
+                println!("     {DIM}reachable with symbolic input(s), in order: {}{X}", vals.join(", "));
+            }
         }
         1
     } else {

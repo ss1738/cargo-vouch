@@ -115,3 +115,14 @@ The dual-mode classifier is now inside the tool; no external scripts needed. Thi
 **Next:** counterexample→source-line + input-value mapping ("panics at line 12 with
 numbers=vec![]"); README + publish to crates.io; sanity/meta-soundness mode; widen corpus
 (iterators, structs).
+
+### Counterexample extraction  ✅ (the "whoa" — show the triggering input)
+**Done:** on a BUG, the tool re-runs the failing harness with `--concrete-playback=print`,
+parses the generated test's annotated values, and shows the input that triggers the panic:
+- `find_max` → 🔴 BUG unwrap on None, **reachable with `0ul`** (vec len 0 = empty vector)
+- `divide`   → 🔴 BUG divide by zero, **reachable with `-1, 0`** (b=0)
+Now: verdict + exact failure + triggering input, in one command.
+
+**Next:** interpret raw values into readable form ("empty vector", "b = 0"); README +
+`cargo install cargo-aiv` (crates.io); the "Panic Log" launch post (3 AI-'correct' fns that
+overflow); sanity/meta-soundness mode; widen corpus (iterators, structs).
