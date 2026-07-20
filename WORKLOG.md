@@ -259,3 +259,19 @@ than sequential). A false verdict from over-parallelism is worse than being slow
 
 verify_one() takes a `slot` to namespace its temp dir so parallel workers (and
 same-named fns across files) never collide. Unit suite still 7 green.
+
+## Week 2 — CI workflows (operational floor + verification gate)
+
+Completed the CI story. Cleaned the crate first: cargo fmt + fixed a clippy
+to_string_in_format_args lint → fmt-clean, clippy -D warnings clean, 7 tests green.
+
+Two workflows:
+- .github/workflows/ci.yml — fast floor on every push/PR: fmt --check, clippy
+  -D warnings, test, build (with rust-cache).
+- .github/workflows/verify.yml — the formal-verification gate: installs Kani,
+  installs cargo-aiv, runs `cargo-aiv verify/*.rs`. Manual + weekly cron (Kani
+  install is minutes, too heavy for every push). Exits 1 on any BUG → fails job.
+
+Seeded verify/ with the two provably-clean corpus fns (get_third, remove_last) so
+the repo's own gate is green (verified: 0 BUG, 2 VERIFIED, exit 0). README gained
+a copy-paste GitHub Actions section.

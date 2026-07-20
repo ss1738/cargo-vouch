@@ -68,6 +68,24 @@ already multi-threaded, so running too many at once starves each solver past its
 timeout and yields false INCONCLUSIVE. Low-but-parallel is both correct and ~2×
 faster than sequential.
 
+### GitHub Actions
+
+Put the functions you want proven panic-free in a `verify/` directory and gate on
+them (this repo ships a working copy in `.github/workflows/verify.yml`):
+
+```yaml
+- name: Install Kani
+  run: cargo install --locked kani-verifier && cargo kani setup
+- name: Install cargo-aiv
+  run: cargo install cargo-aiv
+- name: Prove verify/ is panic-free   # exits 1 on any BUG → fails the job
+  run: cargo-aiv verify/*.rs
+```
+
+Because a Kani install is minutes, run this on a schedule / `workflow_dispatch`
+rather than every push — keep `cargo test` + `clippy` on the hot path (see
+`.github/workflows/ci.yml`).
+
 ## Prove properties, not just panic-freedom
 
 Panic-freedom is the default. To prove a **postcondition** about the return value, pass
