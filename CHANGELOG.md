@@ -3,6 +3,31 @@
 All notable changes to `cargo-aiv`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is SemVer.
 
+## [0.3.0]
+
+### Added
+- **Multi-function files.** Every top-level function in a file is now verified, not
+  just the first — cargo-aiv works on real source files. Unsupported functions
+  (methods, out-of-scope params) are skipped cleanly; their bodies stay so callees
+  resolve.
+- `--selftest` (trust guard), `--json` machine-readable output, `--help`/`--version`,
+  and `--bound N` / `--unwind N` to tune BMC depth.
+- End-to-end integration tests over the real binary (run under Kani in CI).
+
+### Changed
+- **`--json` output is now `{"results": [...], "summary": {...}}`** for both single
+  files and batches (was a bare object for a single file). One result per function.
+
+### Fixed
+- **Unwinding-assertion failures were misreported as 🔴 BUG.** A loop exceeding the
+  unwind bound is INCONCLUSIVE, not a panic — now classified correctly (raise
+  `--unwind`). Found by fresh-corpus validation.
+- **`Option<int>` overflow at `Some(i32::MAX)` was misreported as BUG** instead of
+  UNGUARDED — the payload wasn't range-clamped in realistic mode. Fixed; a genuine
+  `.unwrap()`-on-`None` still surfaces as a real BUG.
+- Temp dirs are namespaced by PID + slot, so concurrent processes verifying
+  same-named functions can't collide.
+
 ## [0.2.0]
 
 The "usable on a real codebase" release. v0.1 verified one function for

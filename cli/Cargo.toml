@@ -1,6 +1,6 @@
 [package]
 name = "cargo-aiv"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Prove AI-generated Rust is panic-free (or prove a postcondition) — auto-generates a Kani proof harness and reports BUG / UNGUARDED / VERIFIED across a file or a whole directory."
 license = "MIT"
