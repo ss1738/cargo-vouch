@@ -1,0 +1,62 @@
+[
+  {
+    "file": "01_sum_vec.rs",
+    "fn": "sum_vec",
+    "supported": true
+  },
+  {
+    "file": "02_get_third.rs",
+    "fn": "get_third",
+    "supported": true
+  },
+  {
+    "file": "03_double_first.rs",
+    "fn": "double_first",
+    "supported": true
+  },
+  {
+    "file": "04_divide.rs",
+    "fn": "divide",
+    "supported": true
+  },
+  {
+    "file": "05_increment_all.rs",
+    "fn": "increment_all",
+    "supported": true
+  },
+  {
+    "file": "06_find_max.rs",
+    "fn": "find_max",
+    "supported": true
+  },
+  {
+    "file": "07_parse_number.rs",
+    "fn": "parse_number",
+    "supported": false
+  },
+  {
+    "file": "08_prepend_zero.rs",
+    "fn": "prepend_zero",
+    "supported": true
+  },
+  {
+    "file": "09_square_sum.rs",
+    "fn": "square_sum",
+    "supported": true
+  },
+  {
+    "file": "10_remove_last.rs",
+    "fn": "remove_last",
+    "supported": true
+  },
+  {
+    "file": "11_subtract_min.rs",
+    "fn": "subtract_min",
+    "supported": true
+  },
+  {
+    "file": "12_average.rs",
+    "fn": "average",
+    "supported": true
+  }
+]

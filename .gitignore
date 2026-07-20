@@ -2,3 +2,4 @@ target/
 *.pyc
 __pycache__/
 spike/target/
+spike2/target/

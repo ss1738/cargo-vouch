@@ -38,3 +38,29 @@ cd ~/cargo-aiv/spike && cargo kani        # runs the 3 harnesses in src/lib.rs
 
 ---
 _(append Day 2… below)_
+
+### Day 1 (cont.) — auto-harness generator + full corpus
+
+**Done:**
+- `gen_harness.py` — v0 harness generator: parses fn signature, maps types → symbolic
+  inputs (`iN`→`kani::any()`, `Vec<iN>`→bounded vec, `Option<iN>`→any), emits `#[kani::proof]`.
+  Ports to Rust/`syn` for the product; validates the mapping logic now.
+- Ran generator on all 12 corpus fns: **11 auto-harnessed, `parse_number` (&str) correctly
+  REJECTED** as unsupported (graceful degradation ✓).
+- Ran `cargo kani` on all 11 → **8 FAILED (bugs), 3 SUCCESSFUL (verified panic-free in bounds).**
+
+| Verified ✅ | Bugs ❌ |
+|---|---|
+| remove_last, prepend_zero, get_third | divide (÷0+overflow), find_max (empty unwrap), double_first (unwrap+mul), subtract_min (sub/add overflow+unwrap), average (overflow+NaN÷), **sum_vec, increment_all, square_sum (overflow)** |
+
+**Key finding:** GPT labelled 6 buggy / 6 correct; Kani found **8** — the 3 extra
+(sum_vec, increment_all, square_sum) are overflow bugs in fns the AI called "correct"
+and `cargo test` would pass. The verifier out-judges the AI on its own code.
+
+**Precondition-gap note (the #1 trust-killer, now concrete):** the overflow "bugs" in
+AI-"correct" fns are real panics on adversarial input (i32::MAX) but a user may say
+"I won't pass that". Week-1 item 3 (ANALYSIS_ERROR vs BUG_FOUND classifier + conservative
+`assume` defaults) is exactly what separates a genuine bug from "needs adversarial input" —
+this is the core quality mechanism to build next.
+
+**Reproduce:** `python3 gen_harness.py && cd spike2 && cargo kani`
