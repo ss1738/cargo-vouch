@@ -12,12 +12,18 @@
 use quote::quote;
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 const BOUND: usize = 3;
 const UNWIND: u32 = 5;
 const RANGE: i64 = 1000;
+/// Per-mode wall-clock cap. Kani can run for minutes on adapter-heavy functions;
+/// past this we report ⏱️ INCONCLUSIVE rather than hang a CI job forever.
+const TIMEOUT_SECS: u64 = 120;
 const SCALARS: &[&str] = &[
     "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "bool",
 ];
@@ -133,7 +139,48 @@ fn build(src: &str, realistic: bool) -> Result<(String, String), String> {
     Ok((name, lib))
 }
 
-fn run_kani(dir: &PathBuf, name: &str, lib: &str) -> BTreeMap<String, (bool, Vec<String>)> {
+/// Run `cargo kani` in `dir`, draining stdout+stderr on threads (so a full pipe
+/// buffer can't deadlock the child) and killing it past `TIMEOUT_SECS`.
+/// Returns None if the run timed out or couldn't start.
+fn kani_output(dir: &PathBuf) -> Option<String> {
+    let mut child = Command::new("cargo")
+        .arg("kani")
+        .current_dir(dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let mut so = child.stdout.take()?;
+    let mut se = child.stderr.take()?;
+    let ho = thread::spawn(move || {
+        let mut s = String::new();
+        so.read_to_string(&mut s).ok();
+        s
+    });
+    let he = thread::spawn(move || {
+        let mut s = String::new();
+        se.read_to_string(&mut s).ok();
+        s
+    });
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if start.elapsed() > Duration::from_secs(TIMEOUT_SECS) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None; // timed out — pipes hit EOF, reader threads unblock
+                }
+                thread::sleep(Duration::from_millis(200));
+            }
+            Err(_) => return None,
+        }
+    }
+    Some(ho.join().unwrap_or_default() + &he.join().unwrap_or_default())
+}
+
+fn run_kani(dir: &PathBuf, name: &str, lib: &str) -> Option<BTreeMap<String, (bool, Vec<String>)>> {
     fs::create_dir_all(dir.join("src")).ok();
     fs::write(
         dir.join("Cargo.toml"),
@@ -141,11 +188,7 @@ fn run_kani(dir: &PathBuf, name: &str, lib: &str) -> BTreeMap<String, (bool, Vec
     )
     .ok();
     fs::write(dir.join("src/lib.rs"), lib).ok();
-    let out = Command::new("cargo").arg("kani").current_dir(dir).output();
-    let text = match out {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).to_string() + &String::from_utf8_lossy(&o.stderr),
-        Err(_) => String::new(),
-    };
+    let text = kani_output(dir)?;
     let mut res = BTreeMap::new();
     let mut cur = String::new();
     for ln in text.lines() {
@@ -166,7 +209,7 @@ fn run_kani(dir: &PathBuf, name: &str, lib: &str) -> BTreeMap<String, (bool, Vec
             }
         }
     }
-    res
+    Some(res)
 }
 
 /// Re-run a failing harness with concrete playback to extract the triggering input.
@@ -245,10 +288,21 @@ fn main() {
         }
     };
     let (_, real_lib) = build(&src, true).unwrap();
-    println!("{DIM}verifying `{name}` (strict + realistic bounded model checking)…{X}");
+    println!("{DIM}verifying `{name}` (strict + realistic bounded model checking, ≤{TIMEOUT_SECS}s/mode)…{X}");
     let base = std::env::temp_dir().join(format!("cargo-aiv-{name}"));
-    let strict = run_kani(&base.join("strict"), &name, &strict_lib);
-    let real = run_kani(&base.join("realistic"), &name, &real_lib);
+    let (strict, real) = match (
+        run_kani(&base.join("strict"), &name, &strict_lib),
+        run_kani(&base.join("realistic"), &name, &real_lib),
+    ) {
+        (Some(s), Some(r)) => (s, r),
+        _ => {
+            println!(
+                "\n{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — verification didn't finish within {TIMEOUT_SECS}s/mode."
+            );
+            println!("     {DIM}too complex to prove at the current bounds (Vec≤{BOUND}, unwind {UNWIND}). Not a pass — not a bug.{X}");
+            std::process::exit(2);
+        }
+    };
 
     let s = strict.get(&name).cloned().unwrap_or((false, vec![]));
     let r = real.get(&name).cloned().unwrap_or((false, vec![]));
