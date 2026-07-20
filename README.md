@@ -17,6 +17,10 @@ $ cargo-aiv sum_vec.rs
 That function was written by an AI that called it *correct*, and `cargo test` passes. Kani
 **proves** it overflows on `[i32::MAX, 1]`. That's the difference between a test and a proof.
 
+It also **proves postconditions** (`--prove 'result >= 0'`), **gates a whole directory** in
+parallel (`cargo-aiv src/*.rs`, exit 1 on any bug), speaks `--json` for CI, and
+`--selftest`s itself so it never silently vouches for results it can't actually check.
+
 ## Why
 
 - **Tests are probabilistic. Proofs aren't.** Formal methods check every input in bounds.
