@@ -275,6 +275,77 @@ fn counterexample(dir: &PathBuf, name: &str) -> Option<(String, Vec<String>)> {
     (!assertion.is_empty() || !vals.is_empty()).then_some((assertion, vals))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::interpret_val;
+    #[test]
+    fn usize_reads_as_vector_length() {
+        assert_eq!(interpret_val("0ul"), "0 (usize → empty vector)");
+        assert_eq!(interpret_val("1ul"), "1 (usize → 1-element vector)");
+        assert_eq!(interpret_val("3ul"), "3 (usize → vector of length 3)");
+    }
+    #[test]
+    fn names_overflow_sentinels() {
+        assert_eq!(interpret_val("-2147483648i32"), "-2147483648 (i32::MIN)");
+        assert_eq!(interpret_val("2147483647i32"), "2147483647 (i32::MAX)");
+        assert_eq!(interpret_val("127i8"), "127 (i8::MAX)");
+        assert_eq!(interpret_val("255u8"), "255 (u8::MAX)");
+    }
+    #[test]
+    fn ordinary_values_pass_through_without_suffix() {
+        assert_eq!(interpret_val("5i32"), "5");
+        assert_eq!(interpret_val("-3i64"), "-3");
+        assert_eq!(interpret_val("42"), "42");
+        assert_eq!(interpret_val("true"), "true");
+        // a non-extreme value that shares a width but isn't the sentinel
+        assert_eq!(interpret_val("100i8"), "100");
+    }
+}
+
+/// Turn a raw Kani concrete value token (`"0ul"`, `"-2147483648i32"`, `"true"`)
+/// into something a human reads at a glance. Conservative: only annotates values
+/// it can identify unambiguously (usize length, min/max sentinels); otherwise
+/// strips the type suffix and passes the number through.
+fn interpret_val(tok: &str) -> String {
+    let t = tok.trim();
+    if t == "true" || t == "false" {
+        return t.to_string();
+    }
+    // split "-123" core from "i32"/"ul"/... suffix
+    let split = t.find(|c: char| c.is_ascii_alphabetic() && c != '-');
+    let (core, suffix) = match split {
+        Some(i) => (&t[..i], &t[i..]),
+        None => (t, ""),
+    };
+    // usize only ever appears as a symbolic Vec/slice length in our harnesses
+    if suffix == "ul" || suffix == "usize" {
+        return match core {
+            "0" => "0 (usize → empty vector)".to_string(),
+            "1" => "1 (usize → 1-element vector)".to_string(),
+            n => format!("{n} (usize → vector of length {n})"),
+        };
+    }
+    // name overflow sentinels (min/max for the signed/unsigned width)
+    let sentinel = match (suffix, core) {
+        ("i8", "-128") => Some("i8::MIN"),
+        ("i8", "127") => Some("i8::MAX"),
+        ("i16", "-32768") => Some("i16::MIN"),
+        ("i16", "32767") => Some("i16::MAX"),
+        ("i32", "-2147483648") => Some("i32::MIN"),
+        ("i32", "2147483647") => Some("i32::MAX"),
+        ("i64" | "isize", "-9223372036854775808") => Some("i64::MIN"),
+        ("i64" | "isize", "9223372036854775807") => Some("i64::MAX"),
+        ("u8", "255") => Some("u8::MAX"),
+        ("u16", "65535") => Some("u16::MAX"),
+        ("u32", "4294967295") => Some("u32::MAX"),
+        _ => None,
+    };
+    match sentinel {
+        Some(name) => format!("{core} ({name})"),
+        None => core.to_string(),
+    }
+}
+
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(|s| s.as_str()) == Some("aiv") {
@@ -342,7 +413,8 @@ fn main() {
         }
         if let Some((_a, vals)) = counterexample(&base.join("realistic"), &name) {
             if !vals.is_empty() {
-                println!("     {DIM}reachable with symbolic input(s), in order: {}{X}", vals.join(", "));
+                let pretty: Vec<String> = vals.iter().map(|v| interpret_val(v)).collect();
+                println!("     {DIM}reachable with input(s), in order: {}{X}", pretty.join(", "));
             }
         }
         1

@@ -41,7 +41,7 @@ That function was written by an AI that called it *correct*, and `cargo test` pa
 $ cargo-aiv find_max.rs
 🔴 BUG  `find_max` — panic reachable on ordinary input:
      • called `Option::unwrap()` on a `None` value
-     reachable with symbolic input(s), in order: 0ul   # empty vector
+     reachable with input(s), in order: 0 (usize → empty vector)
 ```
 
 ## Install

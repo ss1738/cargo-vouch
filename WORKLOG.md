@@ -175,3 +175,17 @@ so by-ref args are distinguished from by-value. Measured (corpus_slice/):
 
 Regression: original Vec corpus verdicts unchanged (find_max→BUG, sum_vec→
 UNGUARDED, get_third→VERIFIED, divide→BUG, parse_number→⏭). No breakage.
+
+## Week 2 — human-readable counterexamples + unit tests
+
+BUG output used to print raw Kani tokens (`0ul`). Added `interpret_val()`:
+- usize tokens → "0 (usize → empty vector)" / "N (usize → vector of length N)"
+  (usize only ever appears as a symbolic Vec/slice length in our harnesses)
+- min/max sentinels → "-2147483648 (i32::MIN)", "255 (u8::MAX)", etc.
+- everything else → number with the type suffix stripped ("5i32" → "5")
+
+Conservative on purpose — only annotates what it can identify unambiguously;
+`100i8` stays "100" (not a sentinel). Now `find_max` prints
+"reachable with input(s), in order: 0 (usize → empty vector)" — the tool says
+what the README used to hand-annotate. Added 3 unit tests (all green) — first
+test coverage in the crate.
