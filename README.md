@@ -182,6 +182,30 @@ cargo-vouch path/to/function.rs
 
 ## How it works
 
+```mermaid
+flowchart TD
+    A["a Rust source file"] --> B["parse every free function<br/>(syn)"]
+    B --> C["build a Kani proof harness<br/>each parameter becomes a bounded symbolic input"]
+    C --> D["bounded model checking with Kani"]
+    D --> S1["strict run<br/>full i32 range"]
+    D --> S2["realistic run<br/>values ≤ 1000"]
+    S1 --> K{"classify from<br/>both runs"}
+    S2 --> K
+    K --> R1["🔴 BUG<br/>reachable on ordinary input, with a witness"]
+    K --> R2["🟡 UNGUARDED<br/>overflow only at i32::MAX / MIN"]
+    K --> R3["✅ VERIFIED<br/>provably panic-free in bounds"]
+    K --> R4["⏱️ INCONCLUSIVE<br/>no stable verdict — e.g. a data-dependent loop"]
+
+    classDef bug fill:#FBECEC,stroke:#E5484D,color:#7f1d1d;
+    classDef ung fill:#FBF2DD,stroke:#C98A00,color:#5a3d00;
+    classDef ver fill:#E6F0EB,stroke:#17795A,color:#0e4a37;
+    classDef inc fill:#EEF0F1,stroke:#8E979F,color:#3d454b;
+    class R1 bug
+    class R2 ung
+    class R3 ver
+    class R4 inc
+```
+
 1. **Parse** the function signature with `syn`.
 2. **Synthesise** a Kani proof harness — each parameter becomes a symbolic input
    (`i32 → kani::any()`, `Vec<i32> →` a bounded symbolic vec, `Option<i32> → kani::any()`).
