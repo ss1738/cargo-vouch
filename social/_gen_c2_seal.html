@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+:root{--ground:#F4F5F3;--ink:#14181A;--muted:#5B6560;--accent:#17795A;--line:#E1E4DF;
+--mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;--sans:-apple-system,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--ground);color:var(--ink)}
+.card{width:1080px;height:1080px;display:flex;overflow:hidden;background:var(--ground)}
+.txt{width:560px;padding:64px 56px;display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:16px}
+.seal{width:52px;height:52px;border-radius:14px;background:var(--accent);color:#fff;font-family:var(--mono);font-weight:700;font-size:31px;display:flex;align-items:center;justify-content:center}
+.wm{font-family:var(--mono);font-weight:700;font-size:36px} .wm b{color:var(--accent)}
+.h{font-weight:800;letter-spacing:-.025em;line-height:1.0;font-size:62px;margin-top:30px;text-wrap:balance}
+.sub{color:var(--muted);font-weight:500;font-size:25px;margin-top:22px;line-height:1.36}
+.cmd{font-family:var(--mono);background:#0C120F;color:#EAF7F1;border-radius:12px;font-size:25px;padding:15px 23px;display:inline-block;margin-top:auto}
+.foot{font-family:var(--mono);color:var(--muted);font-size:19px;margin-top:22px} .foot b{color:var(--accent)}
+.art{flex:1;background:var(--ground);border-left:1px solid var(--line)}
+.art img{width:100%;height:100%;object-fit:cover;display:block}
+</style></head><body>
+<div class="card"><div class="txt">
+<div class="brand"><span class="seal">✓</span><span class="wm">cargo-<b>vouch</b></span></div>
+<div class="h">Provably panic-free.</div><div class="sub">VERIFIED means checked for every input in bounds. Zero annotations to write.</div>
+<span class="cmd">cargo install cargo-vouch</span>
+<div class="foot">github.com/ss1738/<b>cargo-vouch</b></div>
+</div><div class="art"><img src="images/seal.png" alt=""></div></div></body></html>
