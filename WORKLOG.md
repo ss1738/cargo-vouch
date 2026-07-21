@@ -1,11 +1,11 @@
-# cargo-aiv — Work Log
+# cargo-vouch — Work Log
 
 ## Week 1 — Spike / de-risk (goal: does Kani actually catch bugs in AI-generated Rust, fast?)
 
 ### Day 1 — 2026-07-20  ✅ CORE RISK DE-RISKED
 
 **Done:**
-- Project set up at `~/cargo-aiv/` (`corpus/`, `harnesses/`, `spike/`).
+- Project set up at `~/cargo-vouch/` (`corpus/`, `harnesses/`, `spike/`).
 - Toolchain: Rust 1.94 present; **Kani 0.67.0 installed** (`cargo install --locked kani-verifier` + `cargo-kani setup`, ~first-time CBMC download).
 - **Corpus generated** (`corpus/*.rs`, `corpus/manifest.json`): 12 AI-authored Rust utility fns via GPT-4o — 6 seeded-buggy (empty-vec `unwrap`, div-by-zero, overflow), 6 "correct". Realistic Copilot-style code.
 - **Hand-written Kani harnesses** for 3 (`harnesses/examples.rs`) — the pattern the generator will auto-produce (signature → bounded symbolic inputs, `unwind(5)`).
@@ -33,7 +33,7 @@
 ### How to reproduce today's spike
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cd ~/cargo-aiv/spike && cargo kani        # runs the 3 harnesses in src/lib.rs
+cd ~/cargo-vouch/spike && cargo kani        # runs the 3 harnesses in src/lib.rs
 ```
 
 ---
@@ -85,29 +85,29 @@ generator, precondition classifier. The technical core is de-risked and working 
 **Reproduce:** `python3 classify.py`
 
 **Next (Week 2, MVP):** port harness-gen to Rust/`syn`; counterexample→source-line mapping;
-package as `cargo install cargo-aiv`; add the sanity/meta-soundness mode; widen corpus.
+package as `cargo install cargo-vouch`; add the sanity/meta-soundness mode; widen corpus.
 
 ## Week 2 — MVP
 
 ### Port harness generator to Rust/`syn`  ✅ (the product core, no more Python)
-**Done:** `cli/` — real `cargo-aiv` binary (syn 2.x). Parses a single-fn `.rs`, maps param
+**Done:** `cli/` — real `cargo-vouch` binary (syn 2.x). Parses a single-fn `.rs`, maps param
 types → symbolic inputs (scalar ints, `Vec<int>`, `Option<int>`), emits `<fn> + #[kani::proof]`.
-- `cargo-aiv corpus/06_find_max.rs` → correct harness (`any_bounded_vec::<i32>(3)`).
-- `cargo-aiv corpus/07_parse_number.rs` (&str) → **cleanly rejected**, exit 1, clear message.
-- **End-to-end proven:** `cargo-aiv find_max.rs | cargo kani` → catches `unwrap` on `None`.
+- `cargo-vouch corpus/06_find_max.rs` → correct harness (`any_bounded_vec::<i32>(3)`).
+- `cargo-vouch corpus/07_parse_number.rs` (&str) → **cleanly rejected**, exit 1, clear message.
+- **End-to-end proven:** `cargo-vouch find_max.rs | cargo kani` → catches `unwrap` on `None`.
   The whole generate→verify pipeline is self-contained Rust now.
 
 **Next (Week 2 remainder):** counterexample→source-line mapping (Kani trace → "panics at
-line N with numbers=vec![]"); wrap generate+kani+classify into one `cargo aiv verify <file>`
+line N with numbers=vec![]"); wrap generate+kani+classify into one `cargo vouch verify <file>`
 command; fold the dual-mode classifier into the Rust tool; sanity/meta-soundness mode.
 
-### Unified `cargo-aiv <file>` command  ✅ (the MVP experience)
+### Unified `cargo-vouch <file>` command  ✅ (the MVP experience)
 **Done:** the Rust binary now orchestrates the whole flow in one command:
 generate harness → run Kani in strict + realistic modes → classify → colored verdict.
-- `cargo-aiv corpus/06_find_max.rs`   → 🔴 BUG (unwrap on None, reachable)
-- `cargo-aiv corpus/01_sum_vec.rs`    → 🟡 UNGUARDED (overflow only at i32::MAX; "add a guard")
-- `cargo-aiv corpus/02_get_third.rs`  → ✅ VERIFIED
-- `cargo-aiv corpus/07_parse_number`  → ⏭ unsupported (clean reject)
+- `cargo-vouch corpus/06_find_max.rs`   → 🔴 BUG (unwrap on None, reachable)
+- `cargo-vouch corpus/01_sum_vec.rs`    → 🟡 UNGUARDED (overflow only at i32::MAX; "add a guard")
+- `cargo-vouch corpus/02_get_third.rs`  → ✅ VERIFIED
+- `cargo-vouch corpus/07_parse_number`  → ⏭ unsupported (clean reject)
 - **Exits non-zero on BUG** → drops into CI as a gate.
 The dual-mode classifier is now inside the tool; no external scripts needed. This is the
 `cargo install`-able MVP.
@@ -124,11 +124,11 @@ parses the generated test's annotated values, and shows the input that triggers 
 Now: verdict + exact failure + triggering input, in one command.
 
 **Next:** interpret raw values into readable form ("empty vector", "b = 0"); README +
-`cargo install cargo-aiv` (crates.io); the "Panic Log" launch post (3 AI-'correct' fns that
+`cargo install cargo-vouch` (crates.io); the "Panic Log" launch post (3 AI-'correct' fns that
 overflow); sanity/meta-soundness mode; widen corpus (iterators, structs).
 
 ### Shippable: install + README + LICENSE  ✅
-**Done:** `cargo install --path cli` works — `cargo-aiv` is a real installed command.
+**Done:** `cargo install --path cli` works — `cargo-vouch` is a real installed command.
 Wrote README.md (hook: the sum_vec "AI said correct, Kani proved overflow" demo; install
 w/ Kani prereq; verdicts; how-it-works; honest v0 scope) + MIT LICENSE. **The tool is now
 publishable to crates.io / GitHub.**
@@ -245,7 +245,7 @@ Suite now 7 tests, all green. corpus_prove/ + manifest.json make the README
 
 ## Week 2 — batch mode (CI over a crate) + parallelism lesson
 
-`cargo-aiv f1.rs f2.rs ...` (2+ files) → parallel verify, summary table, exit 1
+`cargo-vouch f1.rs f2.rs ...` (2+ files) → parallel verify, summary table, exit 1
 if any BUG. Refactored the single-file verify into a Verdict enum + verify_one()
 (pure of printing) shared by both paths; print_detailed() for single, batch() for
 many. Bug witnesses shown inline in the table.
@@ -269,7 +269,7 @@ Two workflows:
 - .github/workflows/ci.yml — fast floor on every push/PR: fmt --check, clippy
   -D warnings, test, build (with rust-cache).
 - .github/workflows/verify.yml — the formal-verification gate: installs Kani,
-  installs cargo-aiv, runs `cargo-aiv verify/*.rs`. Manual + weekly cron (Kani
+  installs cargo-vouch, runs `cargo-vouch verify/*.rs`. Manual + weekly cron (Kani
   install is minutes, too heavy for every push). Exits 1 on any BUG → fails job.
 
 Seeded verify/ with the two provably-clean corpus fns (get_third, remove_last) so
@@ -325,7 +325,7 @@ reads "Vec≤5". Honest framing: VERIFIED is a proof only within the chosen boun
 ## Week 2 — --selftest (trust guard against false-green)
 
 A verifier that silently passes everything (Kani missing/misconfigured, output
-format drift) is the worst failure mode. Added `cargo-aiv --selftest`: runs a
+format drift) is the worst failure mode. Added `cargo-vouch --selftest`: runs a
 known-BUG (`v[0]` on empty vec) and a known-VERIFIED (identity) function and fails
 loudly if it can't tell them apart. PROVED both branches:
   Kani installed      → PASS, exit 0
@@ -338,7 +338,7 @@ divide→BUG). Suite 13 green, fmt/clippy clean.
 ## Week 2 — FIX: unwinding-assertion mislabeled as BUG (found by fresh corpus)
 
 Generated a fresh 10-fn AI corpus (corpus_v2/, mixing slices/tuples/Vec/Option) to
-grow launch evidence — and it caught a real false-positive in cargo-aiv itself.
+grow launch evidence — and it caught a real false-positive in cargo-vouch itself.
 
 `factorial(n) = (1..=n).product()` was reported 🔴 BUG "panic reachable" — but the
 failed check was `unwinding assertion loop 0`, which is NOT a panic. It means Kani
@@ -373,7 +373,7 @@ VERIFIED.
 
 Authoritative corpus_v2 (post both fixes): 5 UNGUARDED, 4 VERIFIED, 1 INCONCLUSIVE,
 0 hard BUG. Every new type shape (slice/tuple/Option/Vec) verifies correctly on unseen
-AI code. The two fixes are the real story: cargo-aiv caught two of its own false
+AI code. The two fixes are the real story: cargo-vouch caught two of its own false
 verdicts under fresh input — the dual-mode severity discipline held up and got sharper.
 
 ## Week 2 — end-to-end integration tests + PID-namespaced temp dirs
@@ -384,14 +384,14 @@ selftest PASS). #[ignore]d (need Kani) so the fast ci.yml skips them; verify.yml
 `cargo test -- --ignored` where Kani is present.
 
 Writing them exposed a real robustness gap: the single-file temp dir was
-`cargo-aiv-{name}-{slot}`, so two concurrent processes verifying different files that
+`cargo-vouch-{name}-{slot}`, so two concurrent processes verifying different files that
 both define `fn f` collided (cargo test runs tests in parallel → 3 failed). FIX:
 namespace the temp dir by process id too. All 6 e2e green; 15 unit tests green.
 
 ## Week 2 — multi-function files (the real-world adoption gap)
 
 Biggest single limitation removed: build() only ever verified the FIRST fn in a file,
-so pointing cargo-aiv at a real source file silently checked one function. Now every
+so pointing cargo-vouch at a real source file silently checked one function. Now every
 top-level function is verified. run_kani already keyed results by fn name, so the core
 supported it — refactor: harness_for() (one fn) + build_all() (harness per supported fn,
 unsupported ones skipped but their body kept so callees resolve) + verify_file() →
@@ -403,11 +403,11 @@ Measured on a 4-fn file: add→UNGUARDED, first→BUG(witness [0]), identity→V
 parse(&str)→UNSUPPORTED — all four reported, exit 1 (bug present). 16 unit tests
 (added build_all test), 6 e2e, fmt + clippy --all-targets clean.
 
-## Week 2 — directory arguments (cargo-aiv src/)
+## Week 2 — directory arguments (cargo-vouch src/)
 
-A directory arg now recurses into every .rs under it, so `cargo-aiv src/` gates a whole
+A directory arg now recurses into every .rs under it, so `cargo-vouch src/` gates a whole
 crate without a shell glob (and globs don't recurse). collect_rs() walks sorted +
-deterministic, skips non-.rs. verify.yml simplified to `cargo-aiv verify/`. Unit test
+deterministic, skips non-.rs. verify.yml simplified to `cargo-vouch verify/`. Unit test
 covers recursion/sort/.txt-skip. 17 unit tests, clippy --all-targets clean.
 
 ## Week 2 — --fail-on rigor dial
@@ -430,7 +430,7 @@ doc header (--json shape, dir args, --fail-on).
 
 ## Week 2 — dogfood on realistic code + per-file timeout scaling
 
-Ran cargo-aiv on realistic utility modules (dogfood/: stats, pagination, geometry —
+Ran cargo-vouch on realistic utility modules (dogfood/: stats, pagination, geometry —
 14 fns). Findings recorded in RESULTS.md. Real win: page_count → 🔴 BUG (divide-by-zero
 when per_page==0, witness total=-1/per_page=0) — a genuinely shippable bug in plausible
 code; clamp_page (defensive) → ✅ VERIFIED. Geometry all UNGUARDED (classic overflow).

@@ -10,7 +10,7 @@ on:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
 
 jobs:
-  aiv:
+  vouch:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,13 +22,13 @@ jobs:
           cargo install --locked kani-verifier
           cargo kani setup
 
-      - name: Install cargo-aiv
+      - name: Install cargo-vouch
         run: cargo install --path cli
 
       # Guard against false-green: fail loudly if Kani isn't wired up, rather than
       # silently "passing" every function.
       - name: Self-test the verifier
-        run: cargo-aiv --selftest
+        run: cargo-vouch --selftest
 
       # End-to-end tests (need Kani, so #[ignore]d in the fast CI).
       - name: Integration tests
@@ -37,4 +37,4 @@ jobs:
       # Fails the job (exit 1) if any function in verify/ has a reachable panic.
       # A directory arg recurses into every .rs under it.
       - name: Prove verify/ is panic-free
-        run: cargo-aiv verify/
+        run: cargo-vouch verify/

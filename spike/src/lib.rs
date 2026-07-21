@@ -1,5 +1,5 @@
 // Week-1 spike: HAND-WRITTEN Kani harnesses for corpus functions.
-// These are the pattern `cargo-aiv` will AUTO-GENERATE from the fn signature.
+// These are the pattern `cargo-vouch` will AUTO-GENERATE from the fn signature.
 // Bounds: Vec length <= 3, loops unwound <= 5. Property: panic-freedom + overflow.
 //
 // Run (once Kani is installed):  cargo kani

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-aiv-agent — write a Rust function, then *prove* it panic-free.
+vouch-agent — write a Rust function, then *prove* it panic-free.
 
 The loop:
 
-    spec ──▶ Claude writes a Rust fn ──▶ cargo-aiv (Kani BMC)
+    spec ──▶ Claude writes a Rust fn ──▶ cargo-vouch (Kani BMC)
                                               │
               ┌───────────────────────────────┤
               │ 🔴 BUG / 🟡 UNGUARDED / ⏱ INCONCLUSIVE / ⏭ unsupported
@@ -12,12 +12,12 @@ The loop:
               ▼
         ✅ VERIFIED  → done (proven, not just tested)
 
-This is the capstone of cargo-aiv: instead of trusting an LLM's own claim that
+This is the capstone of cargo-vouch: instead of trusting an LLM's own claim that
 its code is correct, an independent bounded model checker verifies it, and the
 concrete counterexample (e.g. "empty vector", "divide by zero at -1, 0") is fed
 back as the repair instruction. It never ships a function it couldn't prove.
 
-Requires: cargo-aiv on PATH (or --cargo-aiv), Kani installed, and Anthropic
+Requires: cargo-vouch on PATH (or --cargo-vouch), Kani installed, and Anthropic
 credentials (ANTHROPIC_API_KEY, or an `ant auth login` profile).
 """
 
@@ -38,7 +38,7 @@ You are a Rust engineer. Given a specification, write ONE safe Rust function \
 (plus any same-file structs, enums, or small helper functions it needs) that \
 satisfies it AND is provably free of panics and integer overflow.
 
-Your code is checked by a bounded model checker (Kani, via `cargo-aiv`), not a \
+Your code is checked by a bounded model checker (Kani, via `cargo-vouch`), not a \
 test suite — it explores every input within bounds. Write so it can prove your \
 code safe:
 
@@ -60,15 +60,15 @@ supporting types). No prose, no explanation outside the code block.\
 """
 
 
-def find_cargo_aiv(explicit: str | None) -> str:
-    """Locate the cargo-aiv binary: explicit path, repo debug build, or PATH."""
+def find_cargo_vouch(explicit: str | None) -> str:
+    """Locate the cargo-vouch binary: explicit path, repo debug build, or PATH."""
     if explicit:
         return explicit
     here = os.path.dirname(os.path.abspath(__file__))
-    local = os.path.join(here, "..", "cli", "target", "debug", "cargo-aiv")
+    local = os.path.join(here, "..", "cli", "target", "debug", "cargo-vouch")
     if os.path.exists(local):
         return os.path.abspath(local)
-    return "cargo-aiv"  # rely on PATH
+    return "cargo-vouch"  # rely on PATH
 
 
 def extract_code(text: str) -> str:
@@ -77,8 +77,8 @@ def extract_code(text: str) -> str:
     return (m.group(1) if m else text).strip()
 
 
-def run_cargo_aiv(binary: str, src: str, flags: list[str]) -> dict:
-    """Write `src` to a temp .rs, run `cargo-aiv --json`, return the parsed result."""
+def run_cargo_vouch(binary: str, src: str, flags: list[str]) -> dict:
+    """Write `src` to a temp .rs, run `cargo-vouch --json`, return the parsed result."""
     with tempfile.NamedTemporaryFile("w", suffix=".rs", delete=False) as f:
         f.write(src)
         path = f.name
@@ -167,22 +167,22 @@ def assistant_text(message) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Write a Rust function and prove it panic-free with cargo-aiv."
+        description="Write a Rust function and prove it panic-free with cargo-vouch."
     )
     ap.add_argument("spec", help="Natural-language description of the function to write")
     ap.add_argument("--max-iters", type=int, default=4, help="Max repair rounds (default 4)")
     ap.add_argument("--model", default=MODEL, help=f"Claude model (default {MODEL})")
-    ap.add_argument("--cargo-aiv", help="Path to the cargo-aiv binary")
+    ap.add_argument("--cargo-vouch", help="Path to the cargo-vouch binary")
     ap.add_argument("--fail-on", choices=["bug", "unguarded", "inconclusive"], default="bug",
                     help="Which verdicts count as failures to repair (default: bug)")
-    ap.add_argument("--bound", type=int, help="cargo-aiv --bound")
-    ap.add_argument("--unwind", type=int, help="cargo-aiv --unwind")
-    ap.add_argument("--str-bound", type=int, help="cargo-aiv --str-bound")
-    ap.add_argument("--str-unwind", type=int, help="cargo-aiv --str-unwind")
+    ap.add_argument("--bound", type=int, help="cargo-vouch --bound")
+    ap.add_argument("--unwind", type=int, help="cargo-vouch --unwind")
+    ap.add_argument("--str-bound", type=int, help="cargo-vouch --str-bound")
+    ap.add_argument("--str-unwind", type=int, help="cargo-vouch --str-unwind")
     ap.add_argument("--out", help="Write the final proven function to this path")
     args = ap.parse_args()
 
-    binary = find_cargo_aiv(args.cargo_aiv)
+    binary = find_cargo_vouch(args.cargo_vouch)
     flags: list[str] = ["--fail-on", args.fail_on]
     for name in ("bound", "unwind", "str_bound", "str_unwind"):
         val = getattr(args, name)
@@ -222,8 +222,8 @@ def main() -> int:
         last_code = code
         print("generated:\n" + "\n".join("    " + l for l in code.splitlines()))
 
-        print(f"── verifying with cargo-aiv ({binary}) ──")
-        result = run_cargo_aiv(binary, code, flags)
+        print(f"── verifying with cargo-vouch ({binary}) ──")
+        result = run_cargo_vouch(binary, code, flags)
         for r in result.get("results", []):
             w = ("  ← " + ", ".join(r["witness"])) if r.get("witness") else ""
             print(f"    {r['verdict']:<12} {r['name']}{w}")

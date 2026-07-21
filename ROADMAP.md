@@ -1,4 +1,4 @@
-# cargo-aiv — Formal verification for AI-generated code
+# cargo-vouch — Formal verification for AI-generated code
 
 **Prove AI-generated code is panic-free, don't just test it.** A CLI + VS Code extension
 that auto-synthesises a formal-verification harness for an AI-generated Rust function,
@@ -25,11 +25,11 @@ labelled "correct" and `cargo test` would pass.**
 
 ## 1. Precise wedge (narrow — the scope guards ARE the product)
 
-- **Product:** `cargo-aiv` — CLI + VS Code extension.
+- **Product:** `cargo-vouch` — CLI + VS Code extension.
 - **Language:** Rust (safe Rust only; **no** `unsafe`, `async`, generics beyond `Vec<T>`/`Option<T>`).
 - **Property:** **panic-freedom + integer overflow** on **bounded inputs** (Vec len ≤ 3, loop unwind ≤ 5). NOT functional correctness ("does it sort?").
 - **User:** solo devs / small teams using Cursor/Copilot to generate small Rust utilities, who want to catch edge-case crashes *before* running the code.
-- **The moment:** dev pastes an AI-generated `fn`; `cargo-aiv` synthesises a Kani harness, runs BMC, returns ✅/❌ with a concrete counterexample.
+- **The moment:** dev pastes an AI-generated `fn`; `cargo-vouch` synthesises a Kani harness, runs BMC, returns ✅/❌ with a concrete counterexample.
 - If it fails on `fn fib(n)` (recursion) — that's **by design, a boundary, not a bug.**
 
 ## 2. Technical approach
@@ -56,7 +56,7 @@ labelled "correct" and `cargo test` would pass.**
 | Phase | Weeks | Milestones | Kill criterion |
 |---|---|---|---|
 | **Spike / de-risk** | 1–3 | 20 AI Rust fns → Kani harnesses → measure verify-time + timeout rate; `syn` signature parser | **<60% verify in <60s → pivot backend/narrow scope** |
-| **MVP** | 4–6 | Auto-harness (primitives, `Vec`, `Option`, tuples≤3), Kani orchestration, counterexample→source, `cargo install cargo-aiv` | — |
+| **MVP** | 4–6 | Auto-harness (primitives, `Vec`, `Option`, tuples≤3), Kani orchestration, counterexample→source, `cargo install cargo-vouch` | — |
 | **Quality** | 7–9 | Dogfood 100 AI fns → classify VERIFIED / REAL_PANIC / MISSING_PRECONDITION / TIMEOUT / UNSUPPORTED; **sanity mode**; graceful degradation | — |
 | **Launch** | 10–12 | VS Code ext + GitHub Action + HN/r/rust/Lobsters + "The Panic Log" blog series | — |
 
@@ -84,8 +84,8 @@ labelled "correct" and `cargo test` would pass.**
 
 ## 6. Go-to-market
 
-- **Free OSS:** MIT/Apache-2, `cargo install cargo-aiv`, CLI-first (what Rust devs expect).
-- **Content:** **"The Panic Log"** — generate 100 Rust fns with GPT/Claude, run `cargo-aiv`, document the edge-case panics `cargo test` missed. Highly shareable. (Day-1 spike is already exhibit A: an overflow the AI called "correct".)
+- **Free OSS:** MIT/Apache-2, `cargo install cargo-vouch`, CLI-first (what Rust devs expect).
+- **Content:** **"The Panic Log"** — generate 100 Rust fns with GPT/Claude, run `cargo-vouch`, document the edge-case panics `cargo test` missed. Highly shareable. (Day-1 spike is already exhibit A: an overflow the AI called "correct".)
 - **Community:** Cursor/Windsurf Discords, Rust Zulip/r/rust. Position: safety net for AI-assisted coding.
 - **Monetise (post-MVP):** cloud CI gate ($25/seat, higher bounds, parallel), custom property templates (Pro, $20 indiv / $100 team), enterprise air-gapped runner for fintech/health Rust shops.
 

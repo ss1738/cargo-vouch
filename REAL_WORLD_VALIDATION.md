@@ -1,4 +1,4 @@
-# Real-world validation — what cargo-aiv does on code it didn't choose
+# Real-world validation — what cargo-vouch does on code it didn't choose
 
 The dogfood in [`RESULTS.md`](RESULTS.md) is honest but *small and self-authored*.
 This is the unbiased test: two real crates pulled from crates.io — **not** written to
@@ -11,8 +11,8 @@ cargo new probe && cd probe
 cargo add roman levenshtein && cargo fetch
 # strip only the crate-level `#![doc = include_str!(...)]` / test modules (they don't
 # compile out of the crate); the function bodies are verbatim.
-cargo-aiv roman_api.rs      # the 5 library fns
-cargo-aiv lev.rs            # levenshtein(a, b)
+cargo-vouch roman_api.rs      # the 5 library fns
+cargo-vouch lev.rs            # levenshtein(a, b)
 ```
 
 ## Result: 6 / 6 functions → ⏱️ INCONCLUSIVE
@@ -48,7 +48,7 @@ INCONCLUSIVE-by-instability for INCONCLUSIVE-by-timeout.
 
 ## What this means for the tool's scope (honestly)
 
-cargo-aiv's demonstrated wins ([`RESULTS.md`](RESULTS.md)) are all **loop-light**
+cargo-vouch's demonstrated wins ([`RESULTS.md`](RESULTS.md)) are all **loop-light**
 functions — the bug lives in the *arithmetic, indexing, or an `unwrap`*, not behind deep
 iteration: divide-by-zero page math, empty-slice `unwrap`, `i32::MIN` overflow,
 `Option::unwrap()` on `None`, `parse().unwrap()` on empty input. That is a real and
@@ -59,7 +59,7 @@ But it is **not** a general "point it at any Rust function and get a verdict" to
 iteration-heavy real code — parsers, string algorithms, anything with a data-dependent
 loop — expect ⏱️ INCONCLUSIVE. The honest headline is:
 
-> **cargo-aiv proves panic-freedom of loop-light functions. On functions dominated by
+> **cargo-vouch proves panic-freedom of loop-light functions. On functions dominated by
 > data-dependent or nested iteration, it reports INCONCLUSIVE — never a false pass, but
 > also no answer.**
 

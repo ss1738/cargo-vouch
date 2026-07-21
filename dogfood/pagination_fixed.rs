@@ -1,4 +1,4 @@
-// pagination.rs with the guards cargo-aiv's report asked for.
+// pagination.rs with the guards cargo-vouch's report asked for.
 fn page_count(total: i32, per_page: i32) -> i32 {
     if per_page <= 0 {
         return 0;

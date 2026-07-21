@@ -1,5 +1,5 @@
 {
-  "note": "Reproduce: cargo-aiv --prove '<property>' corpus_prove/<file>.rs",
+  "note": "Reproduce: cargo-vouch --prove '<property>' corpus_prove/<file>.rs",
   "cases": [
     {"file": "abs_val.rs",    "property": "result >= 0",              "expect": "PROVEN"},
     {"file": "abs_val.rs",    "property": "result > 0",               "expect": "VIOLATED (x=0)"},
