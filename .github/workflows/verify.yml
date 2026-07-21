@@ -35,5 +35,6 @@ jobs:
         run: cargo test --release --manifest-path cli/Cargo.toml -- --ignored
 
       # Fails the job (exit 1) if any function in verify/ has a reachable panic.
+      # A directory arg recurses into every .rs under it.
       - name: Prove verify/ is panic-free
-        run: cargo-aiv verify/*.rs
+        run: cargo-aiv verify/

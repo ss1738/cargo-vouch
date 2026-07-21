@@ -50,12 +50,12 @@ $ cargo-aiv find_max.rs
 
 ## Batch mode (CI over a whole crate)
 
-Pass more than one file and `cargo-aiv` verifies them all in parallel, prints a
-summary table, and exits `1` if **any** function has a BUG — a single gate for a
-directory of functions:
+Pass more than one file — or a **directory** (recursed for `.rs`) — and `cargo-aiv`
+verifies every function in parallel, prints a summary table, and exits `1` if **any**
+function has a BUG. `cargo-aiv src/` gates a whole crate in one command:
 
 ```console
-$ cargo-aiv src/*.rs
+$ cargo-aiv src/
 cargo-aiv batch — 6 file(s), 3 workers, ≤120s/mode each
 
   dot_zip                🟡 UNGUARDED
