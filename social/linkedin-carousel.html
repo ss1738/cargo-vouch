@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cargo-vouch — LinkedIn carousel</title>
+<style>
+  :root{
+    --ink:#16191B; --muted:#5C6560; --faint:#8A938D; --line:#E4E7E1;
+    --green:#136A4E; --green-2:#17795A; --paper:#F7F8F6; --surface:#FFFFFF;
+    --bug:#E5484D; --ung:#C98A00; --ver:#17795A;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#EBEDE9;font-family:var(--sans);padding:34px;
+       display:flex;flex-direction:column;align-items:center;gap:30px}
+  .note{max-width:1080px;width:100%;font-size:14px;color:#4a534e;line-height:1.6}
+  .note code{font-family:var(--mono);background:#dfe2dd;padding:1px 5px;border-radius:4px}
+  .cap{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+       color:#6b746f;margin:2px 0 8px}
+
+  .slide{width:1080px;height:1080px;position:relative;overflow:hidden;
+         border:1px solid var(--line);display:flex;flex-direction:column}
+  .slide .pad{position:absolute;inset:0;padding:96px 100px;display:flex;flex-direction:column}
+  .eyebrow{font-family:var(--mono);font-size:20px;letter-spacing:.14em;text-transform:uppercase;
+           font-weight:700}
+  .foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;
+        font-family:var(--mono);font-size:22px}
+  .wm{font-weight:700}
+  .swipe{font-family:var(--sans);font-size:22px;font-weight:600;opacity:.85}
+  .idx{position:absolute;top:44px;right:52px;font-family:var(--mono);font-size:19px;letter-spacing:.1em}
+
+  /* light story slides */
+  .light{background:var(--surface);color:var(--ink)}
+  .light .eyebrow{color:var(--green-2)}
+  .light .foot{color:var(--muted)} .light .foot .wm{color:var(--ink)} .light .foot .wm b{color:var(--green-2)}
+  .light .idx{color:var(--faint)}
+
+  /* green bookend slides */
+  .fill{background:var(--green);color:#fff}
+  .fill .eyebrow{color:#BFE6D6} .fill .idx{color:#BFE6D6}
+  .fill .foot{color:#CDEBDF} .fill .foot .wm{color:#fff}
+  .fill .swipe{color:#EAF7F1}
+
+  .huge{font-size:300px;font-weight:800;letter-spacing:-.04em;line-height:.9;margin:0;
+        font-variant-numeric:tabular-nums}
+  .h1{font-size:82px;font-weight:800;letter-spacing:-.02em;line-height:1.02;margin:0;text-wrap:balance}
+  .h2{font-size:64px;font-weight:800;letter-spacing:-.02em;line-height:1.05;margin:0;text-wrap:balance}
+  .lead{font-size:34px;line-height:1.35;font-weight:500;margin:0}
+  .light .lead{color:var(--muted)}
+  .spacer{flex:1}
+  .mt24{margin-top:24px} .mt40{margin-top:40px} .mt56{margin-top:56px}
+
+  /* code chip / verdict line */
+  .code{font-family:var(--mono);font-size:30px;background:#0E1513;color:#D6DEDA;border-radius:14px;
+        padding:30px 34px;line-height:1.6;white-space:pre-wrap}
+  .code .p{color:#8FA69C} .code .r{color:#FF6B66} .code .m{color:#7C8A83}
+  .pillrow{display:flex;gap:14px;margin-top:34px;flex-wrap:wrap}
+  .pill{font-family:var(--mono);font-size:22px;padding:12px 22px;border-radius:999px;
+        border:2px solid;display:inline-flex;gap:10px;align-items:center;font-weight:600}
+  .pill.b{color:var(--bug);border-color:#F0C9C9;background:#FCEEEE}
+  .pill.u{color:var(--ung);border-color:#EFDCA9;background:#FBF3DE}
+  .pill.v{color:var(--ver);border-color:#C9E1D7;background:#E9F2ED}
+</style>
+</head>
+<body>
+
+  <div class="note"><strong>LinkedIn carousel</strong> — 5 square slides (1080×1080). Screenshot each and upload as a document/carousel post, in order. Green slides open and close; white slides carry the story. All numbers measured in the repo.</div>
+
+  <!-- ===== 1 — HOOK (green) ===== -->
+  <div><div class="cap">slide 1 / 5 · hook</div>
+  <div class="slide fill"><div class="pad">
+    <div class="idx">01 / 05</div>
+    <div class="eyebrow">I tested an AI on its own code</div>
+    <div class="spacer"></div>
+    <p class="huge">4<span style="font-size:120px;font-weight:600">/11</span></p>
+    <p class="h2 mt24" style="max-width:820px">times GPT-4o was wrong about whether its own Rust function was correct.</p>
+    <div class="foot"><span class="wm">cargo-vouch</span><span class="swipe">swipe →</span></div>
+  </div></div></div>
+
+  <!-- ===== 2 — the problem (light) ===== -->
+  <div><div class="cap">slide 2 / 5 · the problem</div>
+  <div class="slide light"><div class="pad">
+    <div class="idx">02 / 05</div>
+    <div class="eyebrow">Why it matters</div>
+    <div class="spacer"></div>
+    <p class="h1" style="max-width:860px">The tests passed. The bug shipped anyway.</p>
+    <p class="lead mt40" style="max-width:820px">GPT-4o wrote <b style="color:var(--ink)">sum_vec = numbers.iter().sum()</b> and called it correct. It passes <b style="color:var(--ink)">cargo test</b>. It overflows on <b style="color:var(--ink)">[i32::MAX, 1]</b>. A test suite that uses sensible inputs never sees that.</p>
+    <div class="spacer"></div>
+    <div class="foot"><span class="wm">cargo-<b>vouch</b></span><span class="swipe">swipe →</span></div>
+  </div></div></div>
+
+  <!-- ===== 3 — the answer (light + verdict) ===== -->
+  <div><div class="cap">slide 3 / 5 · the answer</div>
+  <div class="slide light"><div class="pad">
+    <div class="idx">03 / 05</div>
+    <div class="eyebrow">The fix</div>
+    <div class="spacer"></div>
+    <p class="h1" style="max-width:900px">Don’t test it. Prove it — for every input.</p>
+    <div class="code mt40"><span class="p">$ cargo vouch find_max.rs</span>
+<span class="r">🔴 BUG</span>  find_max — <span class="m">Option::unwrap() on None</span>
+       <span class="m">reachable with input: []  (empty vector)</span></div>
+    <p class="lead mt40" style="max-width:840px">It checks every input in bounds and hands back the exact value that breaks the function.</p>
+    <div class="spacer"></div>
+    <div class="foot"><span class="wm">cargo-<b>vouch</b></span><span class="swipe">swipe →</span></div>
+  </div></div></div>
+
+  <!-- ===== 4 — the honest bit (light) ===== -->
+  <div><div class="cap">slide 4 / 5 · the honest part</div>
+  <div class="slide light"><div class="pad">
+    <div class="idx">04 / 05</div>
+    <div class="eyebrow">What it can’t do</div>
+    <div class="spacer"></div>
+    <p class="h1" style="max-width:900px">It’s narrow, and I say so in the README.</p>
+    <p class="lead mt40" style="max-width:860px">It proves <b style="color:var(--ink)">loop-light</b> functions — arithmetic, indexing, unwraps. On two random crates from crates.io it proved nothing: <b style="color:var(--ink)">6 of 6 functions came back inconclusive</b>, because they parse and iterate. It never fakes a pass.</p>
+    <div class="pillrow"><span class="pill b">🔴 BUG</span><span class="pill u">🟡 UNGUARDED</span><span class="pill v">✅ VERIFIED</span></div>
+    <div class="spacer"></div>
+    <div class="foot"><span class="wm">cargo-<b>vouch</b></span><span class="swipe">swipe →</span></div>
+  </div></div></div>
+
+  <!-- ===== 5 — CTA (green) ===== -->
+  <div><div class="cap">slide 5 / 5 · cta</div>
+  <div class="slide fill"><div class="pad">
+    <div class="idx">05 / 05</div>
+    <div class="eyebrow">Open source · MIT</div>
+    <div class="spacer"></div>
+    <p class="h1" style="font-size:96px;max-width:900px">Prove your Rust can’t panic.</p>
+    <p class="lead mt40" style="color:#DDF0E8;max-width:760px">Paste a function, get a verdict. No annotations, no test cases to write.</p>
+    <p class="code mt56" style="background:#0C120F;font-size:28px">cargo vouch src/</p>
+    <div class="foot"><span class="wm">github.com/ss1738/cargo-vouch</span><span class="swipe">built on Kani</span></div>
+  </div></div></div>
+
+</body>
+</html>

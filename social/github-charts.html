@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cargo-vouch — charts</title>
+<style>
+  :root{
+    --ground:#F6F7F5; --surface:#FFFFFF; --ink:#16191B; --muted:#5C6560;
+    --faint:#8A938D; --line:#E4E7E1; --accent:#17795A;
+    --bug:#E5484D; --bug-bg:#FBECEC; --ung:#C98A00; --ung-bg:#FBF2DD;
+    --ver:#17795A; --ver-bg:#E6F0EB; --inc:#8E979F; --inc-bg:#EEF0F1;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#EBEDE9;color:var(--ink);font-family:var(--sans);padding:34px;
+       display:flex;flex-direction:column;align-items:center;gap:30px}
+  .note{max-width:1080px;width:100%;font-size:14px;color:#4a534e;line-height:1.6}
+  .note code{font-family:var(--mono);background:#dfe2dd;padding:1px 5px;border-radius:4px}
+  .cap{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+       color:#6b746f;margin:2px 0 8px}
+
+  .fig{width:1080px;background:var(--surface);border:1px solid var(--line);border-radius:16px;
+       padding:44px 52px 48px}
+  .kicker{font-family:var(--mono);font-size:13px;letter-spacing:.1em;text-transform:uppercase;
+          color:var(--accent);font-weight:700;margin:0 0 8px}
+  .title{font-size:30px;font-weight:700;letter-spacing:-.01em;margin:0;line-height:1.12;text-wrap:balance}
+  .lede{font-size:16px;color:var(--muted);margin:12px 0 0;line-height:1.5;max-width:760px}
+  .src{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:26px;
+       border-top:1px solid var(--line);padding-top:14px;display:flex;justify-content:space-between}
+  .src b{color:var(--accent)}
+  .legend{display:flex;gap:22px;flex-wrap:wrap;font-size:14px;color:var(--muted);margin-top:6px}
+  .legend .k{display:inline-flex;align-items:center;gap:8px}
+  .legend .sw{width:12px;height:12px;border-radius:3px}
+  .tnum{font-variant-numeric:tabular-nums}
+
+  /* ---- Fig 1: confusion matrix ---- */
+  .cm{display:grid;grid-template-columns:150px 1fr 1fr;grid-template-rows:auto 1fr 1fr;
+      gap:10px;margin-top:30px}
+  .cm .corner{}
+  .cm .colh,.cm .rowh{font-size:14px;color:var(--muted);display:flex;align-items:center;
+      justify-content:center;text-align:center;font-weight:600}
+  .cm .rowh{writing-mode:horizontal-tb;padding-right:8px;justify-content:flex-end}
+  .cm .rowh small,.cm .colh small{display:block;color:var(--faint);font-weight:500;font-size:12px}
+  .cm .cell{border-radius:12px;padding:22px;min-height:118px;display:flex;flex-direction:column;
+      justify-content:space-between;border:1px solid transparent}
+  .cm .cell .n{font-size:46px;font-weight:800;line-height:1;letter-spacing:-.02em}
+  .cm .cell .lab{font-size:13.5px;line-height:1.35}
+  .cm .agree{background:var(--ver-bg);border-color:#CFE3D9} .cm .agree .n{color:var(--ver)}
+  .cm .wrong{background:var(--bug-bg);border-color:#F1D3D3} .cm .wrong .n{color:var(--bug)}
+  .cm .cell .tag{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+      color:var(--faint)}
+  .scoreline{display:flex;gap:34px;margin-top:26px;align-items:baseline}
+  .scoreline .big{font-size:52px;font-weight:800;letter-spacing:-.02em}
+  .scoreline .big.wr{color:var(--bug)} .scoreline .big.ok{color:var(--ver)}
+  .scoreline .lb{font-size:15px;color:var(--muted);line-height:1.35}
+
+  /* ---- Fig 2: segmented distribution bar ---- */
+  .distbar{display:flex;gap:2px;height:74px;margin-top:30px;border-radius:10px;overflow:hidden}
+  .distbar .seg{display:flex;flex-direction:column;justify-content:center;padding:0 20px;color:#fff}
+  .distbar .seg .n{font-size:30px;font-weight:800;line-height:1}
+  .distbar .seg .l{font-size:12.5px;font-weight:600;opacity:.95;margin-top:3px}
+  .seg.bug{background:var(--bug)} .seg.ver{background:var(--ver)}
+  .seg.ung{background:var(--ung);color:#241A00}  /* dark text: white on amber is too low-contrast */
+  .buglist{margin-top:22px;font-size:14.5px;color:var(--muted);line-height:1.6}
+  .buglist code{font-family:var(--mono);color:var(--ink);background:#F0F2EE;padding:1px 6px;border-radius:5px}
+
+  /* ---- Fig 3: horizontal time bars ---- */
+  .bars{margin-top:28px;display:flex;flex-direction:column;gap:13px}
+  .bars .row{display:grid;grid-template-columns:210px 1fr 84px;align-items:center;gap:16px}
+  .bars .rl{font-size:14.5px;color:var(--ink)} .bars .rl small{color:var(--faint);font-size:12.5px}
+  .bars .track{height:26px;background:#EFF1ED;border-radius:6px;position:relative;overflow:hidden}
+  .bars .fill{height:100%;border-radius:6px;background:var(--accent)}
+  .bars .fill.slow{background:var(--ung)}
+  .bars .fill.inc{background:repeating-linear-gradient(135deg,#B9C0C5 0 9px,#CBD1D5 9px 18px)}
+  .bars .rv{font-family:var(--mono);font-size:14px;text-align:right;color:var(--ink)}
+  .bars .rv.inc{color:var(--inc)}
+  .zone{font-size:13px;color:var(--faint);font-family:var(--mono);margin:8px 0 2px;letter-spacing:.03em}
+</style>
+</head>
+<body>
+
+  <div class="note"><strong>GitHub charts</strong> — screenshot each figure (they're 1080px wide, README-friendly) or embed the PNGs. Every number is measured in the repo (RESULTS.md / REAL_WORLD_VALIDATION.md), not invented.</div>
+
+  <!-- ================= FIG 1 : confusion matrix ================= -->
+  <div>
+    <div class="cap">github readme · the hook</div>
+    <div class="fig">
+      <p class="kicker">GPT-4o graded its own code</p>
+      <h2 class="title">The model was wrong about 4 of its own 11 functions</h2>
+      <p class="lede">I asked GPT-4o for 12 small Rust functions and to label each one buggy or correct. Then a proof checked them. The off-diagonal is where the model and the proof disagree.</p>
+
+      <div class="cm">
+        <div class="corner"></div>
+        <div class="colh">Proof: safe<small>verified panic-free</small></div>
+        <div class="colh">Proof: bug<small>panic / overflow reachable</small></div>
+
+        <div class="rowh">GPT said<br>“correct”</div>
+        <div class="cell agree"><div class="tag">agree</div><div class="n tnum">2</div><div class="lab">right calls — <code style="font-family:var(--mono)">get_third</code>, <code style="font-family:var(--mono)">remove_last</code></div></div>
+        <div class="cell wrong"><div class="tag">missed a bug</div><div class="n tnum">3</div><div class="lab">called broken code correct — overflows in <code style="font-family:var(--mono)">sum_vec</code>, <code style="font-family:var(--mono)">increment_all</code>, <code style="font-family:var(--mono)">square_sum</code></div></div>
+
+        <div class="rowh">GPT said<br>“buggy”</div>
+        <div class="cell wrong"><div class="tag">false alarm</div><div class="n tnum">1</div><div class="lab">flagged safe code — <code style="font-family:var(--mono)">prepend_zero</code> is fine</div></div>
+        <div class="cell agree"><div class="tag">agree</div><div class="n tnum">5</div><div class="lab">real bugs it did catch — empty-vec unwraps, divide-by-zero</div></div>
+      </div>
+
+      <div class="scoreline">
+        <div><span class="big wr tnum">4</span> <span class="lb">wrong<br>self-assessments</span></div>
+        <div><span class="big ok tnum">7</span> <span class="lb">right<br>out of 11</span></div>
+        <div style="max-width:360px"><span class="lb">You can’t grade the model with the model. You need an oracle that isn’t another LLM.</span></div>
+      </div>
+
+      <div class="src"><span>1 of 12 was out of scope (took a <code>&str</code>) and skipped, not answered wrong.</span><span>github.com/ss1738/<b>cargo-vouch</b></span></div>
+    </div>
+  </div>
+
+  <!-- ================= FIG 2 : verdict distribution ================= -->
+  <div>
+    <div class="cap">github readme · what it finds</div>
+    <div class="fig">
+      <p class="kicker">14 functions of ordinary utility code</p>
+      <h2 class="title">Five reachable panics <span style="color:var(--faint);font-weight:600">·</span> `cargo test` would have shipped every one</h2>
+      <p class="lede">Not AI code this time — plain stats, pagination and geometry helpers. Overflow-only cases are marked UNGUARDED (add a guard), not BUG, so it isn’t crying wolf.</p>
+
+      <div class="distbar">
+        <div class="seg bug" style="flex:5"><span class="n tnum">5</span><span class="l">🔴 BUG</span></div>
+        <div class="seg ung" style="flex:8"><span class="n tnum">8</span><span class="l">🟡 UNGUARDED</span></div>
+        <div class="seg ver" style="flex:1"><span class="n tnum">1</span><span class="l">✅ VERIFIED</span></div>
+      </div>
+      <div class="legend">
+        <span class="k"><span class="sw" style="background:var(--bug)"></span>BUG — reachable on ordinary input, with a witness</span>
+        <span class="k"><span class="sw" style="background:var(--ung)"></span>UNGUARDED — overflows only at i32::MAX/MIN</span>
+        <span class="k"><span class="sw" style="background:var(--ver)"></span>VERIFIED — provably panic-free</span>
+      </div>
+      <p class="buglist">The five bugs, each caught with the exact triggering input:
+        <code>page_count</code> ÷0 · <code>mean</code> ÷0 on empty · <code>maximum</code>/<code>minimum</code>/<code>spread</code> <code>.unwrap()</code> on empty slice.</p>
+
+      <div class="src"><span>Every verdict measured under Kani — none inferred.</span><span>github.com/ss1738/<b>cargo-vouch</b></span></div>
+    </div>
+  </div>
+
+  <!-- ================= FIG 3 : honest speed chart ================= -->
+  <div>
+    <div class="cap">github readme · the honest limitation</div>
+    <div class="fig">
+      <p class="kicker">Verification time by function shape</p>
+      <h2 class="title">Instant on arithmetic. Off the chart on loops.</h2>
+      <p class="lede">This is the whole story of when to use it. Straight-line arithmetic and indexing verify in about a second. Anything with a data-dependent loop runs bounded model checking out of depth and comes back INCONCLUSIVE — never a false pass, but no answer.</p>
+
+      <div class="zone">loop-light · the tool’s sweet spot</div>
+      <div class="bars">
+        <div class="row"><div class="rl">struct field math <small>charge()</small></div><div class="track"><div class="fill" style="width:1.5%"></div></div><div class="rv tnum">0.8s</div></div>
+        <div class="row"><div class="rl">scalar / enum <small>eval(), div()</small></div><div class="track"><div class="fill" style="width:2%"></div></div><div class="rv tnum">1s</div></div>
+        <div class="row"><div class="rl">Vec of structs <small>max_price()</small></div><div class="track"><div class="fill" style="width:8%"></div></div><div class="rv tnum">9s</div></div>
+        <div class="row"><div class="rl">&amp;str / String <small>parse().unwrap()</small></div><div class="track"><div class="fill slow" style="width:29%"></div></div><div class="rv tnum">33s</div></div>
+        <div class="row"><div class="rl">iterator .max().unwrap() <small>slow, but resolves</small></div><div class="track"><div class="fill slow" style="width:100%"></div></div><div class="rv tnum">116s</div></div>
+      </div>
+
+      <div class="zone" style="margin-top:20px">loop-heavy · out of reach</div>
+      <div class="bars">
+        <div class="row"><div class="rl">real crate: <small>roman, levenshtein</small></div><div class="track"><div class="fill inc" style="width:100%"></div></div><div class="rv inc">∞</div></div>
+      </div>
+      <p class="buglist" style="margin-top:16px">On two random crates from crates.io, <b style="color:var(--inc)">6 / 6 functions returned INCONCLUSIVE</b> — they parse and iterate. The README says this up front.</p>
+
+      <div class="src"><span>Measured at default bounds on an M-series Mac.</span><span>github.com/ss1738/<b>cargo-vouch</b></span></div>
+    </div>
+  </div>
+
+</body>
+</html>
