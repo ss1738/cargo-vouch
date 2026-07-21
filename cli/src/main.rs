@@ -130,6 +130,32 @@ fn hints_for_file(src: &str) -> BTreeMap<String, LenHint> {
     m
 }
 
+/// True if the function body contains a loop (`for` / `while` / `loop`). Such
+/// functions iterate — often data-dependently — which is the #1 reason a verdict
+/// comes back INCONCLUSIVE: bounded model checking unwinds loops only a few levels.
+/// Loops are cargo-aiv's out-of-niche signal; used only to tailor the INCONCLUSIVE
+/// message (never to change a verdict). Keyword-token scan: `for`/`while`/`loop`
+/// are reserved words, so they can't be identifiers — no false matches.
+fn is_loop_heavy(func: &syn::ItemFn) -> bool {
+    let s = quote!(#func).to_string();
+    s.contains(" for ") || s.contains(" while ") || s.contains(" loop ")
+}
+
+/// Names of functions in the file that contain a loop (see [`is_loop_heavy`]).
+fn loopy_fns(src: &str) -> std::collections::BTreeSet<String> {
+    let mut set = std::collections::BTreeSet::new();
+    if let Ok(file) = syn::parse_file(src) {
+        for it in &file.items {
+            if let syn::Item::Fn(f) = it {
+                if is_loop_heavy(f) {
+                    set.insert(f.sig.ident.to_string());
+                }
+            }
+        }
+    }
+    set
+}
+
 // CI rigor dial (--fail-on): 0 = BUG only (default), 1 = + UNGUARDED, 2 = + INCONCLUSIVE.
 static FAIL_ON: AtomicU8 = AtomicU8::new(0);
 /// Does this verdict fail the gate at the current --fail-on level?
@@ -1020,6 +1046,20 @@ mod tests {
     }
 
     #[test]
+    fn loop_heavy_functions_are_detected() {
+        use super::is_loop_heavy;
+        let f = |s: &str| is_loop_heavy(&syn::parse_str(s).unwrap());
+        assert!(f("fn a(n: i32) -> i32 { let mut x = 0; while x < n { x += 1; } x }"));
+        assert!(f("fn b(v: Vec<i32>) -> i32 { let mut s = 0; for x in v { s += x; } s }"));
+        assert!(f("fn c() -> i32 { loop { break 1; } }"));
+        // Loop-light: no for/while/loop → not flagged.
+        assert!(!f("fn d(a: i32, b: i32) -> i32 { if b == 0 { 0 } else { a / b } }"));
+        assert!(!f("fn e(v: Vec<i32>) -> i32 { v[0] }"));
+        // `for`/`while` as substrings of identifiers must NOT false-match.
+        assert!(!f("fn f(format: i32) -> i32 { format }"));
+    }
+
+    #[test]
     fn unit_struct_is_synthesized() {
         let src = "struct Marker;\nfn f(_m: Marker) -> i32 { 0 }";
         let (_, lib) = build(src, false, None).unwrap();
@@ -1592,8 +1632,9 @@ fn verdict_code(v: &Verdict) -> i32 {
     }
 }
 
-/// Detailed single-file report. Returns the process exit code.
-fn print_detailed(name: &str, v: &Verdict) -> i32 {
+/// Detailed single-file report. `loopy` = this function contains a loop, used to
+/// tailor the INCONCLUSIVE explanation. Returns the process exit code.
+fn print_detailed(name: &str, v: &Verdict, loopy: bool) -> i32 {
     println!();
     match v {
         Verdict::Verified => {
@@ -1626,7 +1667,11 @@ fn print_detailed(name: &str, v: &Verdict) -> i32 {
             println!(
                 "{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — no stable verdict at the current bounds."
             );
-            println!("     {DIM}hit the {TIMEOUT_SECS}s/mode timeout, or gave an unstable strict/realistic split (common for strings at a low unwind). Raise --bound/--unwind/--str-unwind. Not a pass — not a bug.{X}");
+            if loopy {
+                println!("     {DIM}this function iterates (for/while/loop). Data-dependent loops are cargo-aiv's out-of-niche case — BMC can't unwind them far enough. Point it at loop-light code (see REAL_WORLD_VALIDATION.md). Not a pass — not a bug.{X}");
+            } else {
+                println!("     {DIM}hit the {TIMEOUT_SECS}s/mode timeout, or gave an unstable strict/realistic split (common for strings at a low unwind). Raise --bound/--unwind/--str-unwind. Not a pass — not a bug.{X}");
+            }
         }
         Verdict::Unsupported(e) => {
             println!("{Y}⏭  cargo-aiv: {e}{X}");
@@ -2029,8 +2074,9 @@ Docs: https://github.com/ss1738/cargo-aiv
         emit_json(&refs);
         std::process::exit(exit);
     }
+    let loopy = loopy_fns(&src);
     for (name, verdict) in &results {
-        print_detailed(&label(name), verdict);
+        print_detailed(&label(name), verdict, loopy.contains(name));
     }
     std::process::exit(exit);
 }
