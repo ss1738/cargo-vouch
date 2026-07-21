@@ -122,10 +122,8 @@ repo ships a working copy in `.github/workflows/verify.yml`):
 ```yaml
 - name: Install Kani
   run: cargo install --locked kani-verifier && cargo kani setup
-- name: Install cargo-vouch        # not on crates.io yet, install from source
-  run: |
-    git clone https://github.com/ss1738/cargo-vouch
-    cargo install --path cargo-vouch/cli
+- name: Install cargo-vouch
+  run: cargo install cargo-vouch
 - name: Prove verify/ is panic-free   # exits 1 on any BUG, fails the job
   run: cargo-vouch verify/*.rs
 ```
@@ -179,12 +177,18 @@ cargo install --locked kani-verifier
 cargo-kani setup
 ```
 
-Then install cargo-vouch. It isn't on crates.io yet, so build from source:
+Then install cargo-vouch:
+
+```bash
+cargo install cargo-vouch
+cargo-vouch path/to/function.rs
+```
+
+To build the latest from source instead:
 
 ```bash
 git clone https://github.com/ss1738/cargo-vouch
 cargo install --path cargo-vouch/cli
-cargo-vouch path/to/function.rs
 ```
 
 ## How it works
