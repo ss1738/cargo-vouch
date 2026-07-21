@@ -1,16 +1,16 @@
 [package]
-name = "cargo-aiv"
+name = "cargo-vouch"
 version = "0.3.0"
 edition = "2021"
 description = "Prove AI-generated Rust is panic-free (or prove a postcondition) — auto-generates a Kani proof harness and reports BUG / UNGUARDED / VERIFIED across a file or a whole directory."
 license = "MIT"
-repository = "https://github.com/ss1738/cargo-aiv"
+repository = "https://github.com/ss1738/cargo-vouch"
 keywords = ["formal-verification", "kani", "ai", "testing", "panic"]
 categories = ["development-tools", "development-tools::testing"]
 readme = "../README.md"
 
 [[bin]]
-name = "cargo-aiv"
+name = "cargo-vouch"
 path = "src/main.rs"
 
 [dependencies]

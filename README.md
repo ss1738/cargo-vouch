@@ -1,9 +1,9 @@
-# cargo-aiv
+# cargo-vouch
 
 **Prove a loop-light Rust function is panic-free — don't just test it.**
 
 AI writes an exploding share of your code, and `cargo test` only checks the cases you
-thought of. `cargo-aiv` auto-generates a formal-verification harness for **every function
+thought of. `cargo-vouch` auto-generates a formal-verification harness for **every function
 in a file**, runs bounded model checking (via [Kani](https://github.com/model-checking/kani)),
 and tells you whether each can *panic or overflow* — for **all** inputs in bounds, not a sample.
 
@@ -11,13 +11,13 @@ and tells you whether each can *panic or overflow* — for **all** inputs in bou
 *arithmetic, indexing, or an `unwrap`* — divide-by-zero, empty-collection `unwrap`,
 integer overflow, `parse().unwrap()`. On functions dominated by **data-dependent or nested
 loops** (parsers, string algorithms), bounded model checking runs out of unwinding depth
-and cargo-aiv reports ⏱️ INCONCLUSIVE — never a false pass, but no answer either. An
+and cargo-vouch reports ⏱️ INCONCLUSIVE — never a false pass, but no answer either. An
 unbiased run on two real crates (`roman`, `levenshtein`) returned INCONCLUSIVE on all 6
 functions; see [`REAL_WORLD_VALIDATION.md`](REAL_WORLD_VALIDATION.md). Point it at
 loop-light code, not at your parser.
 
 ```console
-$ cargo-aiv sum_vec.rs
+$ cargo-vouch sum_vec.rs
 🟡 UNGUARDED  `sum_vec` — safe on normal input, but overflows at i32::MAX/MIN:
      • attempt to add with overflow
      add a bounds guard or use checked_/saturating_ arithmetic.
@@ -27,7 +27,7 @@ That function was written by an AI that called it *correct*, and `cargo test` pa
 **proves** it overflows on `[i32::MAX, 1]`. That's the difference between a test and a proof.
 
 It also **proves postconditions** (`--prove 'result >= 0'`), **gates a whole directory** in
-parallel (`cargo-aiv src/`, exit 1 on any bug), speaks `--json` for CI, and
+parallel (`cargo-vouch src/`, exit 1 on any bug), speaks `--json` for CI, and
 `--selftest`s itself so it never silently vouches for results it can't actually check.
 
 Run on 14 functions of ordinary utility code, it found **five reachable panics `cargo test`
@@ -35,7 +35,7 @@ would ship** (divide-by-zeros, empty-slice unwraps) — see [`RESULTS.md`](RESUL
 
 ## Point it at this
 
-The functions cargo-aiv is *for* — the bug is in the arithmetic/indexing/`unwrap`, not
+The functions cargo-vouch is *for* — the bug is in the arithmetic/indexing/`unwrap`, not
 behind a loop:
 
 ```rust
@@ -46,7 +46,7 @@ fn parse_port(s: &str) -> u16 { s.parse().unwrap() }                            
 fn clamp_page(p: i32, max: i32) -> i32 { p.clamp(0, max) }                            // ✅ proven safe
 ```
 
-Not this — a data-dependent loop is out of reach for bounded model checking, and cargo-aiv
+Not this — a data-dependent loop is out of reach for bounded model checking, and cargo-vouch
 will say so quickly (⏱️ INCONCLUSIVE, with a note pointing you back here):
 
 ```rust
@@ -57,7 +57,7 @@ fn to_roman(mut n: i32) -> String { let mut s = String::new(); while n >= 1000 {
 
 - **Tests are probabilistic. Proofs aren't.** Formal methods check every input in bounds.
 - **AI code has a blind spot for edge cases** — empty vectors, integer overflow, `unwrap()`
-  on `None`, divide-by-zero. `cargo-aiv` finds them before you ship.
+  on `None`, divide-by-zero. `cargo-vouch` finds them before you ship.
 - **Zero annotations.** You don't write specs or learn a verification language. Paste the
   function, get a verdict.
 
@@ -71,10 +71,10 @@ fn to_roman(mut n: i32) -> String { let mut s = String::new(); while n >= 1000 {
 | ⏱️ **INCONCLUSIVE** | Verification didn't finish in 120s/mode (too complex at the current bounds). *Not a pass, not a bug* — exits `2`. |
 | ⏭ **unsupported** | Uses a type outside v0 scope — skipped cleanly, never a wrong answer. |
 
-`cargo-aiv` **exits non-zero on a BUG**, so it drops straight into CI as a gate.
+`cargo-vouch` **exits non-zero on a BUG**, so it drops straight into CI as a gate.
 
 ```console
-$ cargo-aiv find_max.rs
+$ cargo-vouch find_max.rs
 🔴 BUG  `find_max` — panic reachable on ordinary input:
      • called `Option::unwrap()` on a `None` value
      reachable with input(s), in order: 0 (usize → empty vector)
@@ -82,13 +82,13 @@ $ cargo-aiv find_max.rs
 
 ## Batch mode (CI over a whole crate)
 
-Pass more than one file — or a **directory** (recursed for `.rs`) — and `cargo-aiv`
+Pass more than one file — or a **directory** (recursed for `.rs`) — and `cargo-vouch`
 verifies every function in parallel, prints a summary table, and exits `1` if **any**
-function has a BUG. `cargo-aiv src/` gates a whole crate in one command:
+function has a BUG. `cargo-vouch src/` gates a whole crate in one command:
 
 ```console
-$ cargo-aiv src/
-cargo-aiv batch — 6 file(s), 3 workers, ≤120s/mode each
+$ cargo-vouch src/
+cargo-vouch batch — 6 file(s), 3 workers, ≤120s/mode each
 
   dot_zip                🟡 UNGUARDED
   dot_index              🔴 BUG  ← 1 (usize → 1-element vector), -1, 0 (usize → empty vector)
@@ -116,10 +116,10 @@ them (this repo ships a working copy in `.github/workflows/verify.yml`):
 ```yaml
 - name: Install Kani
   run: cargo install --locked kani-verifier && cargo kani setup
-- name: Install cargo-aiv
-  run: cargo install cargo-aiv
+- name: Install cargo-vouch
+  run: cargo install cargo-vouch
 - name: Prove verify/ is panic-free   # exits 1 on any BUG → fails the job
-  run: cargo-aiv verify/*.rs
+  run: cargo-vouch verify/*.rs
 ```
 
 Because a Kani install is minutes, run this on a schedule / `workflow_dispatch`
@@ -132,7 +132,7 @@ Add `--json` (single file or batch) for structured results you can post to a PR 
 gate on programmatically:
 
 ```console
-$ cargo-aiv --json src/*.rs | jq '.summary'
+$ cargo-vouch --json src/*.rs | jq '.summary'
 { "bug": 1, "unguarded": 0, "verified": 1, "other": 0 }
 ```
 
@@ -146,15 +146,15 @@ Panic-freedom is the default. To prove a **postcondition** about the return valu
 `--prove` with a boolean Rust expression over `result` (and the input names):
 
 ```console
-$ cargo-aiv --prove 'result >= 0' abs_val.rs
+$ cargo-vouch --prove 'result >= 0' abs_val.rs
 ✅ PROVEN  `abs_val` — result >= 0 holds for all inputs in bounds.
 
-$ cargo-aiv --prove 'result.len() == xs.len()' double_all.rs
+$ cargo-vouch --prove 'result.len() == xs.len()' double_all.rs
 ✅ PROVEN  `double_all` — result.len() == xs.len() holds for all inputs in bounds.
 
-$ cargo-aiv --prove 'result > 0' abs_val.rs
+$ cargo-vouch --prove 'result > 0' abs_val.rs
 🔴 VIOLATED  `abs_val` — result > 0 can be false (or the fn panics first):
-     • aiv postcondition
+     • vouch postcondition
      counterexample input(s), in order: 0
 ```
 
@@ -173,8 +173,8 @@ cargo-kani setup
 Then:
 
 ```bash
-cargo install cargo-aiv        # (or: cargo install --path cli)
-cargo-aiv path/to/function.rs
+cargo install cargo-vouch        # (or: cargo install --path cli)
+cargo-vouch path/to/function.rs
 ```
 
 ## How it works
@@ -224,7 +224,7 @@ character bytes are still shown as their numeric code (e.g. `43` for `'+'`).
 (`charge(o: Order) → o.qty * o.price` is 🟡 UNGUARDED in under a second). A struct that
 *contains a `String`* inherits string cost — and when it also carries other symbolic fields
 it can sit right at the BMC tractability edge, where the strict/realistic split turns
-unstable. cargo-aiv reports that as ⏱️ INCONCLUSIVE, never a false 🟡/✅. (The witness for a
+unstable. cargo-vouch reports that as ⏱️ INCONCLUSIVE, never a false 🟡/✅. (The witness for a
 struct field currently uses the `Vec` length-noun; the reproducing value is still correct.)
 
 **Tuning the rigor:** `--bound N` sets the max Vec/slice length checked (default 3),

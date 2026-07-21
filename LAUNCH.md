@@ -74,12 +74,12 @@ tool says ⏱️ INCONCLUSIVE rather than fake a ✅.
 
 ```bash
 cargo install --locked kani-verifier && cargo-kani setup   # the verification engine
-cargo install cargo-aiv
-cargo-aiv src/                                              # your whole crate, or one file
+cargo install cargo-vouch
+cargo-vouch src/                                              # your whole crate, or one file
 ```
 
 ```console
-$ cargo-aiv find_max.rs
+$ cargo-vouch find_max.rs
 🔴 BUG  `find_max` — panic reachable on ordinary input:
      • called `Option::unwrap()` on a `None` value
      reachable with input(s), in order: 0 (usize → empty vector)
@@ -105,7 +105,7 @@ fn dot_index(a: Vec<i32>, b: Vec<i32>) -> i32 {     // 🔴 BUG
 ```
 
 `dot_zip` is safe — `zip` stops at the shorter slice. `dot_index` panics the moment
-the lengths differ, and `cargo-aiv` prints the exact witness:
+the lengths differ, and `cargo-vouch` prints the exact witness:
 
 ```console
 🔴 BUG  `dot_index` — index out of bounds: the length is less than or equal to the given index
@@ -131,7 +131,7 @@ It caught **two false verdicts in its own classifier**:
   UNGUARDED. Fixed — and verified the clamp still lets a genuine `.unwrap()`-on-`None`
   surface as a real BUG.
 
-A verifier you can't trust is worse than none. `cargo-aiv --selftest` runs a known-bug
+A verifier you can't trust is worse than none. `cargo-vouch --selftest` runs a known-bug
 and known-safe function and refuses to vouch for its results if it can't tell them apart.
 
 ## The point
@@ -139,7 +139,7 @@ and known-safe function and refuses to vouch for its results if it can't tell th
 Tests are probabilistic; proofs aren't. As more code comes from models that are confidently
 wrong about their own edge cases, "the tests pass" stops being enough. **Prove, don't pray.**
 
-`cargo-aiv` is MIT-licensed and open source. It's v0 — narrow *on purpose*: safe Rust,
+`cargo-vouch` is MIT-licensed and open source. It's v0 — narrow *on purpose*: safe Rust,
 panic-freedom + overflow, bounded inputs, and **loop-light functions** (the bug is in the
 arithmetic/indexing/`unwrap`, not behind a data-dependent loop — a real run on the `roman`
 and `levenshtein` crates returned INCONCLUSIVE on all 6, see `REAL_WORLD_VALIDATION.md`).
@@ -149,5 +149,5 @@ Within that niche it takes a wide range of params — scalars, `Vec<T>`/slices/t
 AI-aware harness generator, the BUG/UNGUARDED/INCONCLUSIVE classifier that never fakes a
 pass, `--prove` for postconditions, and parallel batch mode for CI.
 
-*Repo: github.com/ss1738/cargo-aiv · reproduce every number above with the corpora in
+*Repo: github.com/ss1738/cargo-vouch · reproduce every number above with the corpora in
 `/corpus*`.*

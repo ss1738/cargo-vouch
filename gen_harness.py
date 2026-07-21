@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cargo-aiv v0 harness generator (prototype).
+"""cargo-vouch v0 harness generator (prototype).
 
 Parses a single-fn Rust file's SIGNATURE and emits a Kani proof harness:
   i32/u32/bool/...   -> let x: T = kani::any();

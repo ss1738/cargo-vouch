@@ -1,13 +1,13 @@
 # Changelog
 
-All notable changes to `cargo-aiv`. Format loosely follows
+All notable changes to `cargo-vouch`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is SemVer.
 
 ## [0.3.0]
 
 ### Added
 - **Multi-function files.** Every top-level function in a file is now verified, not
-  just the first — cargo-aiv works on real source files. Unsupported functions
+  just the first — cargo-vouch works on real source files. Unsupported functions
   (methods, out-of-scope params) are skipped cleanly; their bodies stay so callees
   resolve.
 - `--selftest` (trust guard), `--json` machine-readable output, `--help`/`--version`,
@@ -39,7 +39,7 @@ type shapes, and gates a whole directory in CI — without ever hanging or cryin
   names), e.g. `--prove 'result >= 0'`. `✅ PROVEN` (exit 0) / `🔴 VIOLATED`
   (exit 1, with witness) / `⏱️ INCONCLUSIVE` (exit 2). Turns the tool from a panic
   checker into a property verifier.
-- **Batch mode** — `cargo-aiv src/*.rs` verifies every function in parallel,
+- **Batch mode** — `cargo-vouch src/*.rs` verifies every function in parallel,
   prints a summary table with inline bug witnesses, and exits 1 if any BUG.
   Concurrency capped at ~cores/4 (≤3) so heavy CBMC solvers don't starve each
   other past the timeout.
@@ -53,7 +53,7 @@ type shapes, and gates a whole directory in CI — without ever hanging or cryin
   instead of raw Kani tokens like `0ul`.
 - **Unit tests** (11) covering value interpretation, playback parsing, and harness
   generation; `.github/workflows/ci.yml` (fmt/clippy/test/build) and `verify.yml`
-  (the Kani + cargo-aiv gate).
+  (the Kani + cargo-vouch gate).
 
 ### Fixed
 - Counterexample parser merged tokens across Kani's multiple `concrete_vals`

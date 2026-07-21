@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cargo-aiv precondition-gap classifier (v0) — the anti-cry-wolf engine.
+"""cargo-vouch precondition-gap classifier (v0) — the anti-cry-wolf engine.
 
 Verify each function TWICE:
   - strict    : inputs range over all of i32  (finds every reachable panic)

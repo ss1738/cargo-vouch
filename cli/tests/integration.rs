@@ -4,16 +4,16 @@
 //!
 //!     cargo test --release -- --ignored
 //!
-//! `cargo test` builds the binary and exposes it via CARGO_BIN_EXE_cargo-aiv.
+//! `cargo test` builds the binary and exposes it via CARGO_BIN_EXE_cargo-vouch.
 
 use std::fs;
 use std::process::Command;
 
 fn run(args: &[&str]) -> (i32, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_cargo-aiv"))
+    let out = Command::new(env!("CARGO_BIN_EXE_cargo-vouch"))
         .args(args)
         .output()
-        .expect("failed to run cargo-aiv");
+        .expect("failed to run cargo-vouch");
     let code = out.status.code().unwrap_or(-1);
     let text =
         String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
@@ -21,7 +21,7 @@ fn run(args: &[&str]) -> (i32, String) {
 }
 
 fn fixture(name: &str, src: &str) -> String {
-    let p = std::env::temp_dir().join(format!("aiv-it-{name}.rs"));
+    let p = std::env::temp_dir().join(format!("vouch-it-{name}.rs"));
     fs::write(&p, src).unwrap();
     p.to_string_lossy().into_owned()
 }
