@@ -16,6 +16,8 @@ unbiased run on two real crates (`roman`, `levenshtein`) returned INCONCLUSIVE o
 functions; see [`REAL_WORLD_VALIDATION.md`](REAL_WORLD_VALIDATION.md). Point it at
 loop-light code, not at your parser.
 
+![Verification time by function shape — struct/scalar math ~1s, strings ~33s, iterator .max().unwrap() 116s, and real-crate loops time out to INCONCLUSIVE (6 of 6)](social/charts/speed-by-shape.png)
+
 ```console
 $ cargo-vouch sum_vec.rs
 🟡 UNGUARDED  `sum_vec` — safe on normal input, but overflows at i32::MAX/MIN:
@@ -26,12 +28,16 @@ $ cargo-vouch sum_vec.rs
 That function was written by an AI that called it *correct*, and `cargo test` passes. Kani
 **proves** it overflows on `[i32::MAX, 1]`. That's the difference between a test and a proof.
 
+![GPT-4o graded its own 11 Rust functions and was wrong 4 times — it called three overflowing functions "correct" and one safe function "buggy"; the proof caught all four](social/charts/ai-self-grading.png)
+
 It also **proves postconditions** (`--prove 'result >= 0'`), **gates a whole directory** in
 parallel (`cargo-vouch src/`, exit 1 on any bug), speaks `--json` for CI, and
 `--selftest`s itself so it never silently vouches for results it can't actually check.
 
 Run on 14 functions of ordinary utility code, it found **five reachable panics `cargo test`
 would ship** (divide-by-zeros, empty-slice unwraps) — see [`RESULTS.md`](RESULTS.md).
+
+![Verdicts over 14 ordinary functions: 5 BUG, 8 UNGUARDED (overflow only at extremes), 1 VERIFIED — every one measured under Kani](social/charts/verdict-distribution.png)
 
 ## Point it at this
 
