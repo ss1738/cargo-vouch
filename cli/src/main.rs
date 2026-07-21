@@ -8,12 +8,13 @@
 //!   ✅ VERIFIED     panic-free within bounds
 //!   ⏱️  INCONCLUSIVE didn't finish within the per-mode timeout
 //!
-//!   cargo-aiv <file.rs>...            verify one file, or many (parallel batch)
+//!   cargo-aiv <file.rs | dir>...      verify a file, many files, or a whole dir
 //!   cargo-aiv --prove '<expr>' <file> prove a postcondition over `result`/inputs
 //!   cargo-aiv --emit <file.rs>        print the generated harness, don't run
-//!   cargo-aiv --json <file.rs>...     machine-readable results
+//!   cargo-aiv --json <path>...        machine-readable {results, summary}
 //!   cargo-aiv --selftest              check the Kani wiring is trustworthy
 //!   cargo-aiv --bound N / --unwind N  tune the BMC depth
+//!   cargo-aiv --fail-on <level>       gate strictness: bug|unguarded|inconclusive
 
 use quote::quote;
 use std::collections::BTreeMap;

@@ -419,3 +419,11 @@ exit-code logic in single-file + batch unified through it. Single lone INCONCLUS
 keeps its distinct exit 2 under the default. Backward-compat verified: factorial
 default still exit 2 (e2e green), UNGUARDED default still exit 0. Unit test covers
 all three levels. 18 unit + 6 e2e green, clippy --all-targets clean.
+
+## Week 2 — verified: cross-calling functions in one file
+
+Confirmed the build_all "keep every fn body" design handles functions that call each
+other. corpus_multi/04_crosscall.rs: helper→UNGUARDED, caller (calls helper, has its
+own v[0] bug)→BUG [0], safe_caller (calls double)→VERIFIED, double→VERIFIED. Each fn
+verified independently with the others resolvable as callees. Refreshed the module
+doc header (--json shape, dir args, --fail-on).
