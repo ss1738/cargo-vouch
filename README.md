@@ -33,6 +33,26 @@ parallel (`cargo-aiv src/`, exit 1 on any bug), speaks `--json` for CI, and
 Run on 14 functions of ordinary utility code, it found **five reachable panics `cargo test`
 would ship** (divide-by-zeros, empty-slice unwraps) — see [`RESULTS.md`](RESULTS.md).
 
+## Point it at this
+
+The functions cargo-aiv is *for* — the bug is in the arithmetic/indexing/`unwrap`, not
+behind a loop:
+
+```rust
+fn page_count(total: i32, per_page: i32) -> i32 { (total + per_page - 1) / per_page } // 🔴 div-by-zero
+fn mean(xs: &[i32]) -> i32 { xs.iter().sum::<i32>() / xs.len() as i32 }               // 🔴 empty-slice /0
+fn charge(o: Order) -> u64 { o.qty * o.price }                                        // 🟡 overflow
+fn parse_port(s: &str) -> u16 { s.parse().unwrap() }                                  // 🔴 unwrap on Err
+fn clamp_page(p: i32, max: i32) -> i32 { p.clamp(0, max) }                            // ✅ proven safe
+```
+
+Not this — a data-dependent loop is out of reach for bounded model checking, and cargo-aiv
+will say so quickly (⏱️ INCONCLUSIVE, with a note pointing you back here):
+
+```rust
+fn to_roman(mut n: i32) -> String { let mut s = String::new(); while n >= 1000 { n -= 1000; s.push('M'); } s }
+```
+
 ## Why
 
 - **Tests are probabilistic. Proofs aren't.** Formal methods check every input in bounds.
