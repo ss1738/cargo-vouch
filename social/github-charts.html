@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>cargo-vouch — charts</title>
+<title>cargo-vouch charts</title>
 <style>
   :root{
     --ground:#F6F7F5; --surface:#FFFFFF; --ink:#16191B; --muted:#5C6560;
@@ -89,7 +89,7 @@
 </head>
 <body>
 
-  <div class="note"><strong>GitHub charts</strong> — screenshot each figure (they're 1080px wide, README-friendly) or embed the PNGs. Every number is measured in the repo (RESULTS.md / REAL_WORLD_VALIDATION.md), not invented.</div>
+  <div class="note"><strong>GitHub charts</strong>. Screenshot each figure (they're 1080px wide, README-friendly) or embed the PNGs. Every number is measured in the repo (RESULTS.md / REAL_WORLD_VALIDATION.md), not invented.</div>
 
   <!-- ================= FIG 1 : confusion matrix ================= -->
   <div class="wrap" id="f1">
@@ -105,12 +105,12 @@
         <div class="colh">Proof: bug<small>panic / overflow reachable</small></div>
 
         <div class="rowh">GPT said<br>“correct”</div>
-        <div class="cell agree"><div class="tag">agree</div><div class="n tnum">2</div><div class="lab">right calls — <code style="font-family:var(--mono)">get_third</code>, <code style="font-family:var(--mono)">remove_last</code></div></div>
-        <div class="cell wrong"><div class="tag">missed a bug</div><div class="n tnum">3</div><div class="lab">called broken code correct — overflows in <code style="font-family:var(--mono)">sum_vec</code>, <code style="font-family:var(--mono)">increment_all</code>, <code style="font-family:var(--mono)">square_sum</code></div></div>
+        <div class="cell agree"><div class="tag">agree</div><div class="n tnum">2</div><div class="lab">right calls: <code style="font-family:var(--mono)">get_third</code>, <code style="font-family:var(--mono)">remove_last</code></div></div>
+        <div class="cell wrong"><div class="tag">missed a bug</div><div class="n tnum">3</div><div class="lab">called broken code correct. Overflows in <code style="font-family:var(--mono)">sum_vec</code>, <code style="font-family:var(--mono)">increment_all</code>, <code style="font-family:var(--mono)">square_sum</code></div></div>
 
         <div class="rowh">GPT said<br>“buggy”</div>
-        <div class="cell wrong"><div class="tag">false alarm</div><div class="n tnum">1</div><div class="lab">flagged safe code — <code style="font-family:var(--mono)">prepend_zero</code> is fine</div></div>
-        <div class="cell agree"><div class="tag">agree</div><div class="n tnum">5</div><div class="lab">real bugs it did catch — empty-vec unwraps, divide-by-zero</div></div>
+        <div class="cell wrong"><div class="tag">false alarm</div><div class="n tnum">1</div><div class="lab">flagged safe code: <code style="font-family:var(--mono)">prepend_zero</code> is fine</div></div>
+        <div class="cell agree"><div class="tag">agree</div><div class="n tnum">5</div><div class="lab">real bugs it did catch: empty-vec unwraps, divide-by-zero</div></div>
       </div>
 
       <div class="scoreline">
@@ -129,7 +129,7 @@
     <div class="fig">
       <p class="kicker">14 functions of ordinary utility code</p>
       <h2 class="title">Five reachable panics <span style="color:var(--faint);font-weight:600">·</span> `cargo test` would have shipped every one</h2>
-      <p class="lede">Not AI code this time — plain stats, pagination and geometry helpers. Overflow-only cases are marked UNGUARDED (add a guard), not BUG, so it isn’t crying wolf.</p>
+      <p class="lede">Not AI code this time: plain stats, pagination and geometry helpers. Overflow-only cases are marked UNGUARDED (add a guard), not BUG, so it doesn’t over-report.</p>
 
       <div class="distbar">
         <div class="seg bug" style="flex:5"><span class="n tnum">5</span><span class="l">🔴 BUG</span></div>
@@ -137,14 +137,14 @@
         <div class="seg ver" style="flex:1"><span class="n tnum">1</span><span class="l">✅ VERIFIED</span></div>
       </div>
       <div class="legend">
-        <span class="k"><span class="sw" style="background:var(--bug)"></span>BUG — reachable on ordinary input, with a witness</span>
-        <span class="k"><span class="sw" style="background:var(--ung)"></span>UNGUARDED — overflows only at i32::MAX/MIN</span>
-        <span class="k"><span class="sw" style="background:var(--ver)"></span>VERIFIED — provably panic-free</span>
+        <span class="k"><span class="sw" style="background:var(--bug)"></span>BUG: reachable on ordinary input, with a witness</span>
+        <span class="k"><span class="sw" style="background:var(--ung)"></span>UNGUARDED: overflows only at i32::MAX/MIN</span>
+        <span class="k"><span class="sw" style="background:var(--ver)"></span>VERIFIED: provably panic-free</span>
       </div>
       <p class="buglist">The five bugs, each caught with the exact triggering input:
         <code>page_count</code> ÷0 · <code>mean</code> ÷0 on empty · <code>maximum</code>/<code>minimum</code>/<code>spread</code> <code>.unwrap()</code> on empty slice.</p>
 
-      <div class="src"><span>Every verdict measured under Kani — none inferred.</span><span>github.com/ss1738/<b>cargo-vouch</b></span></div>
+      <div class="src"><span>Every verdict measured under Kani, none inferred.</span><span>github.com/ss1738/<b>cargo-vouch</b></span></div>
     </div>
   </div>
 
@@ -154,7 +154,7 @@
     <div class="fig">
       <p class="kicker">Verification time by function shape</p>
       <h2 class="title">Instant on arithmetic. Off the chart on loops.</h2>
-      <p class="lede">This is the whole story of when to use it. Straight-line arithmetic and indexing verify in about a second. Anything with a data-dependent loop runs bounded model checking out of depth and comes back INCONCLUSIVE — never a false pass, but no answer.</p>
+      <p class="lede">Straight-line arithmetic and indexing verify in about a second. Anything with a data-dependent loop runs bounded model checking out of depth and comes back INCONCLUSIVE. Never a false pass, but no answer.</p>
 
       <div class="zone">loop-light · the tool’s sweet spot</div>
       <div class="bars">
@@ -169,7 +169,7 @@
       <div class="bars">
         <div class="row"><div class="rl">real crate: <small>roman, levenshtein</small></div><div class="track"><div class="fill inc" style="width:100%"></div></div><div class="rv inc" style="font-size:12px">timeout</div></div>
       </div>
-      <p class="buglist" style="margin-top:16px">On two random crates from crates.io, <b style="color:var(--inc)">6 / 6 functions returned INCONCLUSIVE</b> — they parse and iterate. The README says this up front.</p>
+      <p class="buglist" style="margin-top:16px">On two random crates from crates.io, <b style="color:var(--inc)">6 / 6 functions returned INCONCLUSIVE</b>. They parse and iterate. The README says this up front.</p>
 
       <div class="src"><span>Measured at default bounds on an M-series Mac.</span><span>github.com/ss1738/<b>cargo-vouch</b></span></div>
     </div>

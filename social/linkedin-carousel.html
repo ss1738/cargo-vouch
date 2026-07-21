@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>cargo-vouch — LinkedIn carousel</title>
+<title>cargo-vouch LinkedIn carousel</title>
 <style>
   :root{
     --ink:#16191B; --muted:#5C6560; --faint:#8A938D; --line:#E4E7E1;
@@ -66,7 +66,7 @@
 </head>
 <body>
 
-  <div class="note"><strong>LinkedIn carousel</strong> — 5 square slides (1080×1080). Screenshot each and upload as a document/carousel post, in order. Green slides open and close; white slides carry the story. All numbers measured in the repo.</div>
+  <div class="note"><strong>LinkedIn carousel.</strong> 5 square slides (1080×1080). Screenshot each and upload as a document/carousel post, in order. Green slides open and close; white slides carry the story. All numbers measured in the repo.</div>
 
   <!-- ===== 1 — HOOK (green) ===== -->
   <div><div class="cap">slide 1 / 5 · hook</div>
@@ -97,9 +97,9 @@
     <div class="idx">03 / 05</div>
     <div class="eyebrow">The fix</div>
     <div class="spacer"></div>
-    <p class="h1" style="max-width:900px">Don’t test it. Prove it — for every input.</p>
+    <p class="h1" style="max-width:900px">Don’t test it. Prove it for every input.</p>
     <div class="code mt40"><span class="p">$ cargo vouch find_max.rs</span>
-<span class="r">🔴 BUG</span>  find_max — <span class="m">Option::unwrap() on None</span>
+<span class="r">🔴 BUG</span>  find_max: <span class="m">Option::unwrap() on None</span>
        <span class="m">reachable with input: []  (empty vector)</span></div>
     <p class="lead mt40" style="max-width:840px">It checks every input in bounds and hands back the exact value that breaks the function.</p>
     <div class="spacer"></div>
@@ -113,7 +113,7 @@
     <div class="eyebrow">What it can’t do</div>
     <div class="spacer"></div>
     <p class="h1" style="max-width:900px">It’s narrow, and I say so in the README.</p>
-    <p class="lead mt40" style="max-width:860px">It proves <b style="color:var(--ink)">loop-light</b> functions — arithmetic, indexing, unwraps. On two random crates from crates.io it proved nothing: <b style="color:var(--ink)">6 of 6 functions came back inconclusive</b>, because they parse and iterate. It never fakes a pass.</p>
+    <p class="lead mt40" style="max-width:860px">It proves <b style="color:var(--ink)">loop-light</b> functions: arithmetic, indexing, unwraps. On two random crates from crates.io it proved nothing. <b style="color:var(--ink)">6 of 6 functions came back inconclusive</b>, because they parse and iterate. It never fakes a pass.</p>
     <div class="pillrow"><span class="pill b">🔴 BUG</span><span class="pill u">🟡 UNGUARDED</span><span class="pill v">✅ VERIFIED</span></div>
     <div class="spacer"></div>
     <div class="foot"><span class="wm">cargo-<b>vouch</b></span><span class="swipe">swipe →</span></div>
