@@ -169,6 +169,19 @@ fn fails(v: &Verdict) -> bool {
     }
 }
 const RANGE: i64 = 1000;
+/// Realistic-range condition (`expr in [-RANGE, RANGE]` for signed, `expr <= RANGE`
+/// for unsigned) used to split BUG from UNGUARDED. Returns `None` for types whose
+/// entire domain already fits within ±RANGE (`i8`, `u8`): the clamp would be a no-op,
+/// and the `±1000` literal does not fit those types, so emitting it would produce a
+/// harness that fails to compile (silently poisoning every function in the file).
+fn realistic_cond(expr: &str, s: &str) -> Option<String> {
+    match s {
+        "i8" | "u8" => None,
+        _ if s.starts_with('i') => Some(format!("{expr} >= -{RANGE} && {expr} <= {RANGE}")),
+        _ if s.starts_with('u') => Some(format!("{expr} <= {RANGE}")),
+        _ => None,
+    }
+}
 /// Per-mode wall-clock cap. Kani can run for minutes on adapter-heavy functions;
 /// past this we report ⏱️ INCONCLUSIVE rather than hang a CI job forever.
 const TIMEOUT_SECS: u64 = 120;
@@ -258,10 +271,10 @@ fn map_input(
 ) -> Option<(String, String)> {
     if let Some(s) = scalar_int(ty) {
         let mut line = format!("    let {name}: {s} = kani::any();");
-        if realistic && s.starts_with('i') {
-            line += &format!("\n    kani::assume({name} >= -{RANGE} && {name} <= {RANGE});");
-        } else if realistic && s.starts_with('u') {
-            line += &format!("\n    kani::assume({name} <= {RANGE});");
+        if realistic {
+            if let Some(cond) = realistic_cond(name, &s) {
+                line += &format!("\n    kani::assume({cond});");
+            }
         }
         return Some((line, name.to_string()));
     }
@@ -315,12 +328,8 @@ fn map_input(
         let mut line = format!("    let {name}: {tystr} = ({});", anys.join(", "));
         if realistic {
             for (i, s) in types.iter().enumerate() {
-                if s.starts_with('i') {
-                    line += &format!(
-                        "\n    kani::assume({name}.{i} >= -{RANGE} && {name}.{i} <= {RANGE});"
-                    );
-                } else if s.starts_with('u') {
-                    line += &format!("\n    kani::assume({name}.{i} <= {RANGE});");
+                if let Some(cond) = realistic_cond(&format!("{name}.{i}"), s) {
+                    line += &format!("\n    kani::assume({cond});");
                 }
             }
         }
@@ -344,12 +353,10 @@ fn map_input(
                 // overflow at i32::MAX reads as UNGUARDED, not BUG.
                 let tystr = quote!(#ty).to_string().replace(' ', "");
                 let mut line = format!("    let {name}: {tystr} = kani::any();");
-                if realistic && et.starts_with('i') {
-                    line += &format!(
-                        "\n    if let Some(v) = {name} {{ kani::assume(v >= -{RANGE} && v <= {RANGE}); }}"
-                    );
-                } else if realistic && et.starts_with('u') {
-                    line += &format!("\n    if let Some(v) = {name} {{ kani::assume(v <= {RANGE}); }}");
+                if realistic {
+                    if let Some(cond) = realistic_cond("v", &et) {
+                        line += &format!("\n    if let Some(v) = {name} {{ kani::assume({cond}); }}");
+                    }
                 }
                 return Some((line, name.to_string()));
             }
@@ -883,7 +890,26 @@ fn parse_playback(text: &str) -> Option<(String, Vec<String>)> {
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
-    use super::{build, interpret_val_ctx, len_hint_for, map_input, parse_playback, LenHint};
+    use super::{
+        build, interpret_val_ctx, len_hint_for, map_input, parse_playback, realistic_cond, LenHint,
+    };
+
+    #[test]
+    fn narrow_ints_skip_the_realistic_clamp() {
+        // i8/u8 whole-domain fits within ±RANGE; a ±1000 literal would not fit the
+        // type and would poison the whole file's harness compilation. So: no clamp.
+        assert_eq!(realistic_cond("x", "i8"), None);
+        assert_eq!(realistic_cond("x", "u8"), None);
+        // wider ints still get the realistic clamp.
+        assert_eq!(
+            realistic_cond("x", "i16"),
+            Some("x >= -1000 && x <= 1000".to_string())
+        );
+        assert_eq!(realistic_cond("x", "u16"), Some("x <= 1000".to_string()));
+        assert!(realistic_cond("x", "i32").is_some());
+        assert!(realistic_cond("x", "i64").is_some());
+        assert!(realistic_cond("x", "u32").is_some());
+    }
 
     /// Test alias: interpret a token with the default (Vector) length-noun.
     fn interpret_val(tok: &str) -> String {
