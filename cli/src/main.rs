@@ -190,6 +190,7 @@ const TIMEOUT_MAX_SECS: u64 = 600;
 const SCALARS: &[&str] = &[
     "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "bool",
 ];
+const FLOATS: &[&str] = &["f32", "f64"];
 const G: &str = "\x1b[32m";
 const R: &str = "\x1b[31m";
 const Y: &str = "\x1b[33m";
@@ -248,6 +249,11 @@ fn scalar_int(ty: &syn::Type) -> Option<String> {
     (args.is_empty() && SCALARS.contains(&base.as_str())).then_some(base)
 }
 
+fn scalar_float(ty: &syn::Type) -> Option<String> {
+    let (base, args) = path_head(ty)?;
+    (args.is_empty() && FLOATS.contains(&base.as_str())).then_some(base)
+}
+
 /// A bounded symbolic `Vec<et>` binding line. `mutable` makes it `let mut`.
 fn vec_binding(name: &str, et: &str, realistic: bool, mutable: bool) -> String {
     let m = if mutable { "mut " } else { "" };
@@ -276,6 +282,14 @@ fn map_input(
                 line += &format!("\n    kani::assume({cond});");
             }
         }
+        return Some((line, name.to_string()));
+    }
+    // f32/f64 — bind a symbolic float. No realistic clamp: float arithmetic does not
+    // panic (it yields inf/NaN, not an overflow panic), so there is no BUG-vs-UNGUARDED
+    // split to make. Kani's default NaN / float-UB checks still run, so a reachable NaN
+    // (e.g. 0.0 / 0.0 in a control loop) surfaces as a BUG. Both modes are identical.
+    if let Some(s) = scalar_float(ty) {
+        let line = format!("    let {name}: {s} = kani::any();");
         return Some((line, name.to_string()));
     }
     // &str — bind a symbolic ASCII String and pass `&s` (coerces to &str).
@@ -644,7 +658,7 @@ fn harness_for(
                 };
                 stringy |= type_has_string(&pt.ty, types);
                 let (line, arg_expr) = map_input(&pname, &pt.ty, realistic, types).ok_or_else(|| {
-                    format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int], &str/String, tuples, same-file structs/enums of these)", quote!(#pt))
+                    format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, f32/f64, Vec<int>, Option<int>, &[int], &str/String, tuples, same-file structs/enums of these)", quote!(#pt))
                 })?;
                 inputs.push(line);
                 args.push(arg_expr);
@@ -984,11 +998,11 @@ mod tests {
     #[test]
     fn build_all_emits_a_harness_per_function() {
         use super::build_all;
-        let src = "fn a(x: i32) -> i32 { x }\nfn b(x: f64) -> i32 { 0 }\nfn c(v: Vec<i32>) -> i32 { v[0] }";
+        let src = "fn a(x: i32) -> i32 { x }\nfn b(x: char) -> i32 { 0 }\nfn c(v: Vec<i32>) -> i32 { v[0] }";
         let (statuses, lib) = build_all(src, false).unwrap();
         let names: Vec<&str> = statuses.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, vec!["a", "b", "c"]);
-        // a and c are supported → harnesses present; b (f64) is skipped with a reason
+        // a and c are supported → harnesses present; b (char) is skipped with a reason
         assert!(statuses[0].1.is_none());
         assert!(statuses[1].1.is_some());
         assert!(statuses[2].1.is_none());
@@ -999,9 +1013,24 @@ mod tests {
 
     #[test]
     fn unsupported_param_is_rejected() {
-        // f64 is outside v0 scope (no float support) — must still reject cleanly.
-        assert!(map_input("x", &syn::parse_str("f64").unwrap(), false, &no_types()).is_none());
-        assert!(build("fn f(x: f64) {}", false, None).is_err());
+        // `char` is outside scope — must still reject cleanly.
+        assert!(map_input("x", &syn::parse_str("char").unwrap(), false, &no_types()).is_none());
+        assert!(build("fn f(x: char) {}", false, None).is_err());
+    }
+
+    #[test]
+    fn float_params_are_supported() {
+        // f32/f64 are in scope: bound with kani::any() and NO realistic clamp (floats
+        // do not overflow; Kani's default NaN check surfaces float-UB as a BUG).
+        for t in ["f32", "f64"] {
+            let ty = syn::parse_str(t).unwrap();
+            let (line, arg) = map_input("x", &ty, true, &no_types()).unwrap();
+            assert!(line.contains(&format!("let x: {t} = kani::any();")));
+            assert!(!line.contains("assume"), "floats must not get a realistic clamp");
+            assert_eq!(arg, "x");
+        }
+        // a float field inside a struct is synthesized too.
+        assert!(build("struct S { a: f32, b: i32 }\nfn f(s: S) -> f32 { s.a }", false, None).is_ok());
     }
 
     #[test]
@@ -1050,8 +1079,8 @@ mod tests {
 
     #[test]
     fn struct_with_unsupported_field_is_rejected() {
-        // A float field is unsupported → the whole struct bounces cleanly (never wrong).
-        let src = "struct P { x: f64 }\nfn f(p: P) -> i32 { 0 }";
+        // A `char` field is unsupported → the whole struct bounces cleanly (never wrong).
+        let src = "struct P { x: char }\nfn f(p: P) -> i32 { 0 }";
         assert!(build(src, false, None).is_err());
     }
 
@@ -1165,8 +1194,8 @@ mod tests {
 
     #[test]
     fn enum_with_unsupported_field_is_rejected() {
-        // A variant carrying a float bounces the whole enum (never a wrong answer).
-        let src = "enum E { A(f64), B }\nfn f(e: E) -> i32 { 0 }";
+        // A variant carrying a `char` bounces the whole enum (never a wrong answer).
+        let src = "enum E { A(char), B }\nfn f(e: E) -> i32 { 0 }";
         assert!(build(src, false, None).is_err());
     }
 
@@ -1880,8 +1909,9 @@ VERDICTS:
     ⏱️  INCONCLUSIVE didn't finish within {t}s/mode (exit 2)
     ⏭  unsupported  a type outside v0 scope — skipped cleanly
 
-Supported params: scalar ints, Vec<int>, Option<int>, &[int]/&mut [int], &str/String,
-                  (int, int), and same-file structs whose fields are all of the above.
+Supported params: scalar ints, f32/f64, Vec<int>, Option<int>, &[int]/&mut [int],
+                  &str/String, (int, int), and same-file structs whose fields are all
+                  of the above. Floats are checked for NaN / float-UB as well as panics.
 Requires Kani: cargo install --locked kani-verifier && cargo kani setup
 Docs: https://github.com/ss1738/cargo-vouch
 ",

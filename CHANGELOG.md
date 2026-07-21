@@ -3,6 +3,18 @@
 All notable changes to `cargo-vouch`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is SemVer.
 
+## [0.4.0]
+
+### Added
+- **Floating-point support (`f32`, `f64`).** Float params are now in scope, as scalars
+  and inside tuples, `Option`, and same-file structs/enums. Floats get no realistic
+  clamp: float arithmetic does not panic (it yields `inf`/`NaN`, not an overflow panic),
+  so there is no BUG-vs-UNGUARDED split. Instead, Kani's default NaN / float-UB checks
+  run, so a reachable NaN (e.g. `0.0 / 0.0` or `inf * 0.0` in a control loop) surfaces as
+  a BUG. This makes cargo-vouch catch a real safety-critical hazard, not just panics.
+  On the 26-function embedded corpus, combined with the 0.3.2 fix, definitive verdicts
+  reached 26/26 (100%) with zero INCONCLUSIVE and zero UNSUPPORTED.
+
 ## [0.3.2]
 
 ### Fixed
