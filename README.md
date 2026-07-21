@@ -1,11 +1,20 @@
 # cargo-aiv
 
-**Prove AI-generated Rust is panic-free — don't just test it.**
+**Prove a loop-light Rust function is panic-free — don't just test it.**
 
 AI writes an exploding share of your code, and `cargo test` only checks the cases you
 thought of. `cargo-aiv` auto-generates a formal-verification harness for **every function
 in a file**, runs bounded model checking (via [Kani](https://github.com/model-checking/kani)),
 and tells you whether each can *panic or overflow* — for **all** inputs in bounds, not a sample.
+
+**Scope, up front (measured):** the sweet spot is functions where the bug is in the
+*arithmetic, indexing, or an `unwrap`* — divide-by-zero, empty-collection `unwrap`,
+integer overflow, `parse().unwrap()`. On functions dominated by **data-dependent or nested
+loops** (parsers, string algorithms), bounded model checking runs out of unwinding depth
+and cargo-aiv reports ⏱️ INCONCLUSIVE — never a false pass, but no answer either. An
+unbiased run on two real crates (`roman`, `levenshtein`) returned INCONCLUSIVE on all 6
+functions; see [`REAL_WORLD_VALIDATION.md`](REAL_WORLD_VALIDATION.md). Point it at
+loop-light code, not at your parser.
 
 ```console
 $ cargo-aiv sum_vec.rs
