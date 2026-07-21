@@ -1,29 +1,27 @@
 # LinkedIn launch post — cargo-vouch
 
-## Caption (copy-paste)
+## Caption (copy-paste) — unanimous across GPT-4o + Qwen + Kimi + Claude
 
-An AI wrote a Rust function, passed `cargo test`, and shipped it.
-It still panics on one input the tests never tried.
+I just launched cargo-vouch, an open-source Rust tool that proves a function can't panic. No tests to write, no annotations to add.
 
-That gap is why I built cargo-vouch.
+Point it at a .rs file and it builds a Kani proof harness for every function, then checks every input in bounds. Each function comes back with one of four verdicts:
 
-It is a cargo subcommand that proves a Rust function can't panic. You point it at a file, it writes a Kani proof harness for every function, and checks every input in bounds. No annotations, no test cases to write.
+🔴 BUG, with the exact input that triggers the panic
+🟡 UNGUARDED, safe except at type extremes like i32::MAX
+🟢 VERIFIED, provably panic-free
+⏳ INCONCLUSIVE, when it cannot decide
 
-You get a verdict:
-🔴 BUG, with the exact input that triggers it
-🟡 UNGUARDED, overflows only at i32::MAX / MIN
-✅ VERIFIED, provably panic-free
+Why I built it: AI writes Rust that passes cargo test, then panics on an edge input nobody tried. For example, numbers.iter().sum() looks fine until something hands it [i32::MAX, 1].
 
-I ran it on 11 Rust functions GPT-4o wrote and graded as correct. It was wrong 4 times: three overflowed on edge inputs, one was actually fine but it flagged it anyway. cargo-vouch caught all four, and handed back the input that breaks each one.
+I ran it on 11 functions GPT-4o wrote and graded. GPT-4o's own grading got 4 of them wrong: it passed three that overflow and failed one that was fine. cargo-vouch called all four correctly, with the triggering input for each real panic.
 
-The honest limit: it is for loop-light code, the arithmetic, indexing and unwraps where most of these bugs live. Point it at a parser and it returns INCONCLUSIVE. On two random crates from crates.io, 6 of 6 functions came back INCONCLUSIVE. It never fakes a pass.
+The honest limit: it is built for loop-light code. Parsers and loop-heavy functions return INCONCLUSIVE, never a false pass. I would rather say that than oversell it.
 
-Live and open source (MIT):
+If you write Rust, I would like your feedback.
+
 cargo install cargo-vouch
 
-Built on Kani. Would love feedback from anyone writing Rust.
-
-#Rust #AI #FormalVerification #DeveloperTools
+#rustlang #opensource #formalverification
 
 ---
 
