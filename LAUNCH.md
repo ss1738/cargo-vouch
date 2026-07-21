@@ -139,11 +139,15 @@ and known-safe function and refuses to vouch for its results if it can't tell th
 Tests are probabilistic; proofs aren't. As more code comes from models that are confidently
 wrong about their own edge cases, "the tests pass" stops being enough. **Prove, don't pray.**
 
-`cargo-aiv` is MIT-licensed and open source. It's v0 — narrow on purpose (safe Rust,
-panic-freedom + overflow, bounded inputs; scalars, `Vec`/slices/tuples/`Option` of ints).
-It stands on [Kani](https://github.com/model-checking/kani); the new part is the
-zero-annotation, AI-aware harness generator, the BUG/UNGUARDED/INCONCLUSIVE classifier,
-`--prove` for postconditions, and parallel batch mode for CI.
+`cargo-aiv` is MIT-licensed and open source. It's v0 — narrow *on purpose*: safe Rust,
+panic-freedom + overflow, bounded inputs, and **loop-light functions** (the bug is in the
+arithmetic/indexing/`unwrap`, not behind a data-dependent loop — a real run on the `roman`
+and `levenshtein` crates returned INCONCLUSIVE on all 6, see `REAL_WORLD_VALIDATION.md`).
+Within that niche it takes a wide range of params — scalars, `Vec<T>`/slices/tuples,
+`Option<T>`, `&str`/`String`, and same-file structs & enums (all recursively). It stands on
+[Kani](https://github.com/model-checking/kani); the new part is the zero-annotation,
+AI-aware harness generator, the BUG/UNGUARDED/INCONCLUSIVE classifier that never fakes a
+pass, `--prove` for postconditions, and parallel batch mode for CI.
 
 *Repo: github.com/ss1738/cargo-aiv · reproduce every number above with the corpora in
 `/corpus*`.*
