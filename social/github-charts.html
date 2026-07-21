@@ -40,7 +40,7 @@
       gap:10px;margin-top:30px}
   .cm .corner{}
   .cm .colh,.cm .rowh{font-size:14px;color:var(--muted);display:flex;align-items:center;
-      justify-content:center;text-align:center;font-weight:600}
+      justify-content:center;text-align:center;font-weight:600;flex-direction:column;gap:3px}
   .cm .rowh{writing-mode:horizontal-tb;padding-right:8px;justify-content:flex-end}
   .cm .rowh small,.cm .colh small{display:block;color:var(--faint);font-weight:500;font-size:12px}
   .cm .cell{border-radius:12px;padding:22px;min-height:118px;display:flex;flex-direction:column;
@@ -77,6 +77,14 @@
   .bars .rv{font-family:var(--mono);font-size:14px;text-align:right;color:var(--ink)}
   .bars .rv.inc{color:var(--inc)}
   .zone{font-size:13px;color:var(--faint);font-family:var(--mono);margin:8px 0 2px;letter-spacing:.03em}
+
+  /* solo export mode: github-charts.html#f1 renders just that figure on a clean white sheet */
+  :root:has(:target) body{padding:0;background:#fff;gap:0}
+  :root:has(:target) body>.note{display:none}
+  :root:has(:target) .wrap{display:none}
+  :root:has(:target) .wrap:target{display:block}
+  :root:has(:target) .wrap:target .cap{display:none}
+  :root:has(:target) .fig{border:none;border-radius:0;box-shadow:none}
 </style>
 </head>
 <body>
@@ -84,7 +92,7 @@
   <div class="note"><strong>GitHub charts</strong> — screenshot each figure (they're 1080px wide, README-friendly) or embed the PNGs. Every number is measured in the repo (RESULTS.md / REAL_WORLD_VALIDATION.md), not invented.</div>
 
   <!-- ================= FIG 1 : confusion matrix ================= -->
-  <div>
+  <div class="wrap" id="f1">
     <div class="cap">github readme · the hook</div>
     <div class="fig">
       <p class="kicker">GPT-4o graded its own code</p>
@@ -116,7 +124,7 @@
   </div>
 
   <!-- ================= FIG 2 : verdict distribution ================= -->
-  <div>
+  <div class="wrap" id="f2">
     <div class="cap">github readme · what it finds</div>
     <div class="fig">
       <p class="kicker">14 functions of ordinary utility code</p>
@@ -141,7 +149,7 @@
   </div>
 
   <!-- ================= FIG 3 : honest speed chart ================= -->
-  <div>
+  <div class="wrap" id="f3">
     <div class="cap">github readme · the honest limitation</div>
     <div class="fig">
       <p class="kicker">Verification time by function shape</p>
@@ -159,7 +167,7 @@
 
       <div class="zone" style="margin-top:20px">loop-heavy · out of reach</div>
       <div class="bars">
-        <div class="row"><div class="rl">real crate: <small>roman, levenshtein</small></div><div class="track"><div class="fill inc" style="width:100%"></div></div><div class="rv inc">∞</div></div>
+        <div class="row"><div class="rl">real crate: <small>roman, levenshtein</small></div><div class="track"><div class="fill inc" style="width:100%"></div></div><div class="rv inc" style="font-size:12px">timeout</div></div>
       </div>
       <p class="buglist" style="margin-top:16px">On two random crates from crates.io, <b style="color:var(--inc)">6 / 6 functions returned INCONCLUSIVE</b> — they parse and iterate. The README says this up front.</p>
 
