@@ -6,3 +6,4 @@ spike2/target/
 cli/target/
 e2e/target/
 e2e/Cargo.lock
+agent/.venv/
