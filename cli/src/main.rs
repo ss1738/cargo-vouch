@@ -1694,12 +1694,12 @@ fn print_detailed(name: &str, v: &Verdict, loopy: bool) -> i32 {
     match v {
         Verdict::Verified => {
             println!(
-                "{G}{B}✅ VERIFIED{X}  `{name}` — panic-free for Vec≤{}, |val|≤{RANGE}.",
+                "{G}{B}✅ VERIFIED{X}  `{name}`  panic-free for Vec≤{}, |val|≤{RANGE}.",
                 bound()
             );
         }
         Verdict::Bug(checks, vals) => {
-            println!("{R}{B}🔴 BUG{X}  `{name}` — panic reachable on ordinary input:");
+            println!("{R}{B}🔴 BUG{X}  `{name}`  panic reachable on ordinary input:");
             for c in checks {
                 println!("     {R}• {c}{X}");
             }
@@ -1712,7 +1712,7 @@ fn print_detailed(name: &str, v: &Verdict, loopy: bool) -> i32 {
             }
         }
         Verdict::Unguarded(checks) => {
-            println!("{Y}{B}🟡 UNGUARDED{X}  `{name}` — safe on normal input, but overflows at i32::MAX/MIN:");
+            println!("{Y}{B}🟡 UNGUARDED{X}  `{name}`  safe on normal input, but overflows at i32::MAX/MIN:");
             for c in checks {
                 println!("     {Y}• {c}{X}");
             }
@@ -1720,12 +1720,12 @@ fn print_detailed(name: &str, v: &Verdict, loopy: bool) -> i32 {
         }
         Verdict::Inconclusive => {
             println!(
-                "{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — no stable verdict at the current bounds."
+                "{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}`  no stable verdict at the current bounds."
             );
             if loopy {
-                println!("     {DIM}this function iterates (for/while/loop). Data-dependent loops are cargo-vouch's out-of-niche case — BMC can't unwind them far enough. Point it at loop-light code (see REAL_WORLD_VALIDATION.md). Not a pass — not a bug.{X}");
+                println!("     {DIM}this function iterates (for/while/loop). Data-dependent loops are cargo-vouch's out-of-niche case, BMC can't unwind them far enough. Point it at loop-light code (see REAL_WORLD_VALIDATION.md). Not a pass, not a bug.{X}");
             } else {
-                println!("     {DIM}hit the {TIMEOUT_SECS}s/mode timeout, or gave an unstable strict/realistic split (common for strings at a low unwind). Raise --bound/--unwind/--str-unwind. Not a pass — not a bug.{X}");
+                println!("     {DIM}hit the {TIMEOUT_SECS}s/mode timeout, or gave an unstable strict/realistic split (common for strings at a low unwind). Raise --bound/--unwind/--str-unwind. Not a pass, not a bug.{X}");
             }
         }
         Verdict::Unsupported(e) => {
@@ -1836,7 +1836,7 @@ fn verdict_kind(v: &Verdict) -> &'static str {
 /// Run a function that MUST be BUG and one that MUST be VERIFIED; fail loudly if the
 /// tool can't tell them apart.
 fn selftest() -> i32 {
-    println!("{DIM}cargo-vouch self-test — checking the Kani wiring in this environment…{X}");
+    println!("{DIM}cargo-vouch self-test: checking the Kani wiring in this environment…{X}");
     let one = |src: &str, slot| verify_file(src, slot).pop().map(|(_, v)| v).unwrap();
     let bug = one("fn vouch_bug(v: Vec<i32>) -> i32 { v[0] }", 900);
     let safe = one("fn vouch_safe(x: i32) -> i32 { x }", 901);
@@ -1860,7 +1860,7 @@ fn selftest() -> i32 {
         mark(safe_ok)
     );
     if bug_ok && safe_ok {
-        println!("{G}{B}PASS{X} — Kani is wired correctly; verdicts are trustworthy.");
+        println!("{G}{B}PASS{X}  Kani is wired correctly; verdicts are trustworthy.");
         0
     } else {
         println!(
@@ -2077,11 +2077,11 @@ Docs: https://github.com/ss1738/cargo-vouch
         let v = res.get(&name).cloned().unwrap_or((false, vec![]));
         println!();
         if !v.0 {
-            println!("{G}{B}✅ PROVEN{X}  `{name}` — {B}{expr}{X} holds for all inputs in bounds.");
+            println!("{G}{B}✅ PROVEN{X}  `{name}`  {B}{expr}{X} holds for all inputs in bounds.");
             std::process::exit(0);
         }
         println!(
-            "{R}{B}🔴 VIOLATED{X}  `{name}` — {B}{expr}{X} can be false (or the fn panics first):"
+            "{R}{B}🔴 VIOLATED{X}  `{name}`  {B}{expr}{X} can be false (or the fn panics first):"
         );
         for c in &v.1 {
             println!("     {R}• {c}{X}");
