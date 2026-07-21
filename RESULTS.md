@@ -38,15 +38,16 @@ guard actually works.
 | `total(xs)` | 🟡 UNGUARDED `[MEASURED, 8s]` | `.sum()` overflows |
 | `mean(xs)` | 🔴 **BUG** `[MEASURED, 13s]` | **divide-by-zero on an empty slice** (`sum / len`) |
 | `maximum(xs)` | 🔴 **BUG** `[MEASURED, 116s]` | `.max().unwrap()` on an empty slice |
-| `minimum(xs)` | 🔴 BUG `[INFERRED]` | same `.min().unwrap()`-on-empty pattern as `maximum` |
-| `spread(xs)` | 🔴 BUG `[INFERRED]` | calls `maximum`/`minimum`, so panics on empty too |
+| `minimum(xs)` | 🔴 **BUG** `[MEASURED]` | `.min().unwrap()` on an empty slice (empty-vec witness) |
+| `spread(xs)` | 🔴 **BUG** `[MEASURED]` | calls `maximum`/`minimum`, so panics on empty too (empty-vec witness) |
 | `abs_total(xs)` | 🟡 UNGUARDED `[MEASURED, 7s]` | `x.abs()` overflows at `i32::MIN`; `.sum()` overflows |
 
 Two more **real, shippable bugs**: a stats module that panics on empty input (`mean`
-divides by zero; `maximum`/`minimum` unwrap `None`). Empty-collection handling is the
-single most common latent panic in this kind of code, and every one is caught with the
-witness. (`[INFERRED]` = the same construct as a `[MEASURED]` sibling, not independently
-run — see the limitation below.)
+divides by zero; `maximum`/`minimum` unwrap `None`, and `spread` inherits it).
+Empty-collection handling is the single most common latent panic in this kind of code,
+and every one is caught with the witness. (`maximum`/`minimum`/`spread` are the slow
+`.min()/.max().unwrap()` case — `maximum` alone is 116s, and all three together verified
+in one whole-file run in ~26 min; every verdict here was run, none inferred.)
 
 ## An honest limitation this surfaced
 

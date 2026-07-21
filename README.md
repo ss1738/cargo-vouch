@@ -116,8 +116,10 @@ them (this repo ships a working copy in `.github/workflows/verify.yml`):
 ```yaml
 - name: Install Kani
   run: cargo install --locked kani-verifier && cargo kani setup
-- name: Install cargo-vouch
-  run: cargo install cargo-vouch
+- name: Install cargo-vouch        # not on crates.io yet — install from source
+  run: |
+    git clone https://github.com/ss1738/cargo-vouch
+    cargo install --path cargo-vouch/cli
 - name: Prove verify/ is panic-free   # exits 1 on any BUG → fails the job
   run: cargo-vouch verify/*.rs
 ```
@@ -170,10 +172,11 @@ cargo install --locked kani-verifier
 cargo-kani setup
 ```
 
-Then:
+Then install cargo-vouch. It isn't on crates.io yet, so build from source:
 
 ```bash
-cargo install cargo-vouch        # (or: cargo install --path cli)
+git clone https://github.com/ss1738/cargo-vouch
+cargo install --path cargo-vouch/cli
 cargo-vouch path/to/function.rs
 ```
 
@@ -204,8 +207,9 @@ verified) as params;
 tuple returns work in both default and `--prove` mode (`result.0`, `result.1`). Property:
 **panic-freedom + integer overflow**, bounded (Vec ≤ 3, loops unwound ≤ 5). **Idiomatic iterator chains verify fine** — `.iter().map().filter()
 .collect()`, `.fold()`, `.scan()`, `.enumerate()`, `.max_by_key()` all lower into the bounded
-model; they don't path-explode, though heavy adapter chains can take ~30–50s. Past 120s/mode
-the tool reports ⏱️ INCONCLUSIVE instead of hanging.
+model; they don't path-explode, though heavy adapter chains are slow — an
+`.iter().max().unwrap()` alone measured ~116s. Past 120s/mode the tool reports
+⏱️ INCONCLUSIVE instead of hanging.
 
 **On strings, honestly:** `&str`/`String` catch the classic string panics — `.chars().next()
 .unwrap()`, `.parse().unwrap()` on empty or malformed input — with a witness, at default
@@ -237,6 +241,26 @@ bounds — raise them for stronger guarantees.
 recursion, unbounded loops, external crates, and types defined outside the file under test.
 These are rejected cleanly (⏭), never answered wrongly. (For an enum bug, the witness shows
 the raw variant-selector value alongside the field values.)
+
+## vouch-agent — write a function, then *prove* it
+
+The scary failure mode for AI-written code isn't a compile error — it's a
+confidently-wrong function that passes `cargo test`. [`agent/`](agent/) ships a
+small dev agent that closes the loop: an LLM writes a Rust function, `cargo-vouch`
+verifies it, and on a 🔴 BUG the **concrete counterexample** ("reachable with
+input: empty vector") is fed back as the repair instruction — until it's ✅ VERIFIED
+or the agent gives up. The model's own claim is never trusted; an independent
+bounded model checker is the oracle.
+
+```console
+$ python vouch_agent.py "the average of a slice of i32"
+── iteration 1 ──  fn average(xs:&[i32])->i32 { xs.iter().sum::<i32>()/xs.len() as i32 }
+   🔴 BUG  average  ← 0 (usize → empty vector)
+── iteration 2 ──  guards the empty slice + widens to i64
+   ✅ VERIFIED
+```
+
+Setup and options in [`agent/README.md`](agent/README.md). Needs an Anthropic API key.
 
 ## License
 
