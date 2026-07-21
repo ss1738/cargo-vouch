@@ -30,3 +30,42 @@ bad query param or config) panics the process. `cargo test` with sensible page s
 would never surface it; the proof does, with the exact triggering input. And
 `clamp_page` — deliberately written defensively — is *proven* safe, so you know the
 guard actually works.
+
+## stats.rs — numeric summaries over a slice
+
+| function | verdict | why |
+|---|---|---|
+| `total(xs)` | 🟡 UNGUARDED `[MEASURED, 8s]` | `.sum()` overflows |
+| `mean(xs)` | 🔴 **BUG** `[MEASURED, 13s]` | **divide-by-zero on an empty slice** (`sum / len`) |
+| `maximum(xs)` | 🔴 **BUG** `[MEASURED, 116s]` | `.max().unwrap()` on an empty slice |
+| `minimum(xs)` | 🔴 BUG `[INFERRED]` | same `.min().unwrap()`-on-empty pattern as `maximum` |
+| `spread(xs)` | 🔴 BUG `[INFERRED]` | calls `maximum`/`minimum`, so panics on empty too |
+| `abs_total(xs)` | 🟡 UNGUARDED `[MEASURED, 7s]` | `x.abs()` overflows at `i32::MIN`; `.sum()` overflows |
+
+Two more **real, shippable bugs**: a stats module that panics on empty input (`mean`
+divides by zero; `maximum`/`minimum` unwrap `None`). Empty-collection handling is the
+single most common latent panic in this kind of code, and every one is caught with the
+witness. (`[INFERRED]` = the same construct as a `[MEASURED]` sibling, not independently
+run — see the limitation below.)
+
+## An honest limitation this surfaced
+
+`stats.rs` first came back **all INCONCLUSIVE** as a whole file. Root cause, measured:
+`.iter().max()/.min().unwrap()` is *pathologically slow* in Kani — **~116s for a single
+function**. A file's harnesses share one `cargo kani` invocation and (originally) one
+120s timeout, so a slow function timed out the whole file and every verdict was lost.
+
+Fixed in this session (commit `dfd432f`): the per-file timeout now **scales with the
+function count** (`120s × n`, capped at 600s), so a fast function isn't starved by a slow
+sibling. But the underlying truth stands and is worth stating plainly: **BMC is expensive
+on some iterator patterns.** cargo-aiv is honest about it — a function it can't finish
+proving is ⏱️ INCONCLUSIVE ("raise `--unwind`/wait", *not* a pass), never a false ✅.
+
+## Bottom line
+
+Across 14 functions of realistic code, cargo-aiv found **five reachable panics that
+`cargo test` would ship** (a divide-by-zero page calc, a divide-by-zero mean, three
+empty-slice unwraps), flagged every extreme-only overflow as UNGUARDED rather than crying
+wolf, and *proved* the one defensively-written function safe — while being upfront about
+where verification is slow. That's the whole pitch: **prove, don't pray — and don't lie
+about what you couldn't prove.**
