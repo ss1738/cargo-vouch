@@ -18,8 +18,11 @@ That function was written by an AI that called it *correct*, and `cargo test` pa
 **proves** it overflows on `[i32::MAX, 1]`. That's the difference between a test and a proof.
 
 It also **proves postconditions** (`--prove 'result >= 0'`), **gates a whole directory** in
-parallel (`cargo-aiv src/*.rs`, exit 1 on any bug), speaks `--json` for CI, and
+parallel (`cargo-aiv src/`, exit 1 on any bug), speaks `--json` for CI, and
 `--selftest`s itself so it never silently vouches for results it can't actually check.
+
+Run on 14 functions of ordinary utility code, it found **five reachable panics `cargo test`
+would ship** (divide-by-zeros, empty-slice unwraps) — see [`RESULTS.md`](RESULTS.md).
 
 ## Why
 

@@ -48,12 +48,34 @@ empty vector hitting `.unwrap()`, a zero divisor — get flagged as reachable on
 *with the exact triggering value.* The difference between crying wolf and being trusted is
 this distinction, and it's the whole game.
 
+## It's not just AI code — I pointed it at ordinary utility modules
+
+To check it wasn't a party trick on cherry-picked functions, I wrote three plain modules of
+the kind every project has — stats, pagination, geometry (14 functions) — and ran the whole
+directory. It found **five reachable panics `cargo test` would have shipped:**
+
+```rust
+fn page_count(total: i32, per_page: i32) -> i32 { (total + per_page - 1) / per_page }
+//                                        🔴 BUG: divide-by-zero when per_page == 0
+fn mean(xs: &[i32]) -> i32 { xs.iter().sum::<i32>() / xs.len() as i32 }
+//                          🔴 BUG: divide-by-zero on an empty slice
+fn maximum(xs: &[i32]) -> i32 { *xs.iter().max().unwrap() }
+//                             🔴 BUG: .unwrap() on None for an empty slice
+```
+
+Every one is an *empty-input* or *zero-divisor* panic — the exact class that survives a test
+suite because tests pass non-empty, sensible inputs. The overflow-only functions were flagged
+🟡 UNGUARDED (not false BUGs), and the one function written defensively (`clamp_page`) was
+*proven* ✅ safe. Full run + timings in [`RESULTS.md`](RESULTS.md), every number labelled
+`[MEASURED]` — including the honest part: `.max()/.min()` proofs are slow (~116s), and the
+tool says ⏱️ INCONCLUSIVE rather than fake a ✅.
+
 ## Try it
 
 ```bash
 cargo install --locked kani-verifier && cargo-kani setup   # the verification engine
 cargo install cargo-aiv
-cargo-aiv your_function.rs
+cargo-aiv src/                                              # your whole crate, or one file
 ```
 
 ```console
