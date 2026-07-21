@@ -172,11 +172,17 @@ model; they don't path-explode, though heavy adapter chains can take ~30–50s. 
 the tool reports ⏱️ INCONCLUSIVE instead of hanging.
 
 **On strings, honestly:** `&str`/`String` catch the classic string panics — `.chars().next()
-.unwrap()` / `.parse().unwrap()` on empty or malformed input — with the empty-string witness,
-at a low bound (`--bound 1`, ~30s). But Unicode-heavy operations (`.to_uppercase()`,
-`.split()`) are **expensive under bounded model checking**: at the default bound they can blow
-past the 120s/mode timeout and land ⏱️ INCONCLUSIVE rather than ✅. Reach for string
-verification on panic-prone parsing/indexing code, not on heavy text transformation.
+.unwrap()`, `.parse().unwrap()` on empty or malformed input — with a witness, at default
+settings (~30–40s). Strings are ~10× more expensive under bounded model checking than
+int/`Vec` params (UTF-8 decode + Unicode machinery), and the cost is driven by the *unwind
+depth*, not the length — so string harnesses get their **own low defaults, decoupled from the
+numeric knobs**: length ≤ 1 (`--str-bound`, default 1) and unwind 2 (`--str-unwind`,
+default 2). That's what makes a string bug resolve to 🔴/✅ instead of ⏱️ INCONCLUSIVE out of
+the box. Length ≤ 1 still covers the empty-string case, where nearly every string panic lives.
+Raise `--str-bound`/`--str-unwind` for more coverage at higher cost. Heavy text transforms
+(`.to_uppercase()`, multi-`.split()`) can still time out to ⏱️ INCONCLUSIVE — never a false ✅.
+*Known cosmetic gap:* a string witness is printed in the `Vec` idiom (e.g. "1-element
+vector") — the reproducing input is right, the noun is not yet string-aware.
 
 **Tuning the rigor:** `--bound N` sets the max Vec/slice length checked (default 3),
 `--unwind N` the loop-unroll depth (default 5). Higher = more coverage, slower. A
