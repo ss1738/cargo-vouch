@@ -222,13 +222,13 @@ fn vec_binding(name: &str, et: &str, realistic: bool, mutable: bool) -> String {
 
 /// Map a parameter to (binding line(s), argument expression at the call site).
 /// The arg expr differs from the name for by-reference params (`&v`, `&mut v`).
-/// `structs` holds same-file struct defs so a struct param can be synthesized
-/// field-by-field (recursively).
+/// `types` holds same-file struct/enum defs so a struct or enum param can be
+/// synthesized field-by-field / variant-by-variant (recursively).
 fn map_input(
     name: &str,
     ty: &syn::Type,
     realistic: bool,
-    structs: &StructMap,
+    types: &Types,
 ) -> Option<(String, String)> {
     if let Some(s) = scalar_int(ty) {
         let mut line = format!("    let {name}: {s} = kani::any();");
@@ -325,46 +325,74 @@ fn map_input(
             }
             Some((line, name.to_string()))
         }
-        // A struct defined in the same file: bind each field symbolically, construct it.
-        _ if args.is_empty() => structs
+        // A same-file struct or enum: synthesize it. Structs win if a name is both
+        // (it can't be, but keep the order deterministic).
+        _ if args.is_empty() => types
+            .structs
             .get(base.as_str())
-            .and_then(|fields| synth_struct(name, &base, fields, realistic, structs)),
+            .and_then(|fields| synth_struct(name, &base, fields, realistic, types))
+            .or_else(|| {
+                types
+                    .enums
+                    .get(base.as_str())
+                    .and_then(|variants| synth_enum(name, &base, variants, realistic, types))
+            }),
         _ => None,
     }
 }
 
 /// Named-field struct defs collected from the source file: name → [(field, type)].
 type StructMap = BTreeMap<String, Vec<(String, syn::Type)>>;
+/// Enum defs collected from the source file: name → [(variant, its fields)].
+type EnumMap = BTreeMap<String, Vec<(String, syn::Fields)>>;
 
-/// Collect every same-file struct with named fields into a [`StructMap`].
-fn collect_structs(file: &syn::File) -> StructMap {
-    let mut m = BTreeMap::new();
+/// The same-file type registry threaded through synthesis (structs + enums).
+#[derive(Default)]
+struct Types {
+    structs: StructMap,
+    enums: EnumMap,
+}
+
+/// Collect every same-file struct (named fields) and enum into a [`Types`] registry.
+fn collect_types(file: &syn::File) -> Types {
+    let mut t = Types::default();
     for it in &file.items {
-        if let syn::Item::Struct(s) = it {
-            if let syn::Fields::Named(named) = &s.fields {
-                let fields = named
-                    .named
-                    .iter()
-                    .filter_map(|f| f.ident.as_ref().map(|id| (id.to_string(), f.ty.clone())))
-                    .collect();
-                m.insert(s.ident.to_string(), fields);
+        match it {
+            syn::Item::Struct(s) => {
+                if let syn::Fields::Named(named) = &s.fields {
+                    let fields = named
+                        .named
+                        .iter()
+                        .filter_map(|f| f.ident.as_ref().map(|id| (id.to_string(), f.ty.clone())))
+                        .collect();
+                    t.structs.insert(s.ident.to_string(), fields);
+                }
             }
+            syn::Item::Enum(e) => {
+                let variants = e
+                    .variants
+                    .iter()
+                    .map(|v| (v.ident.to_string(), v.fields.clone()))
+                    .collect();
+                t.enums.insert(e.ident.to_string(), variants);
+            }
+            _ => {}
         }
     }
-    m
+    t
 }
 
 /// Synthesize a symbolic struct: bind each field to a synthetic local (reusing
-/// `map_input`, so nested structs/strings/Vecs all work), then construct the value.
-/// Returns None if ANY field is an unsupported or by-reference type — the struct
-/// bounces cleanly, never a wrong answer. Recursion is bounded: a cyclic struct
-/// needs `Box`/`Rc` indirection, which `map_input` rejects, so it terminates.
+/// `map_input`, so nested structs/enums/strings/Vecs all work), then construct the
+/// value. Returns None if ANY field is an unsupported or by-reference type — the
+/// struct bounces cleanly, never a wrong answer. Recursion is bounded: a cyclic type
+/// needs `Box`/`Rc`/`Vec` indirection, which `map_input` rejects, so it terminates.
 fn synth_struct(
     name: &str,
     base: &str,
     fields: &[(String, syn::Type)],
     realistic: bool,
-    structs: &StructMap,
+    types: &Types,
 ) -> Option<(String, String)> {
     if fields.is_empty() {
         return None; // a fieldless struct has nothing symbolic to bind
@@ -373,7 +401,7 @@ fn synth_struct(
     let mut inits = Vec::new();
     for (fname, fty) in fields {
         let local = format!("{name}_{fname}");
-        let (line, arg) = map_input(&local, fty, realistic, structs)?;
+        let (line, arg) = map_input(&local, fty, realistic, types)?;
         if arg != local {
             return None; // by-reference/borrow field (e.g. &[T]) — not owned, reject
         }
@@ -387,17 +415,109 @@ fn synth_struct(
     Some((lines.join("\n"), name.to_string()))
 }
 
-/// True if a type binds (recursively, through struct fields) a symbolic string —
-/// used to give string-bearing harnesses the lower str_unwind, even when the
-/// string is nested inside a struct param.
-fn type_has_string(ty: &syn::Type, structs: &StructMap) -> bool {
+/// Build the constructor expression for one enum variant, binding each of its
+/// fields symbolically inside a block. None if any field is unsupported/by-ref.
+fn variant_ctor(
+    name: &str,
+    base: &str,
+    vi: usize,
+    vname: &str,
+    fields: &syn::Fields,
+    realistic: bool,
+    types: &Types,
+) -> Option<String> {
+    // Flatten a field binding (may be multi-statement) onto one line for the arm.
+    let flat = |line: String| line.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+    match fields {
+        syn::Fields::Unit => Some(format!("{base}::{vname}")),
+        syn::Fields::Unnamed(un) => {
+            let mut lines = Vec::new();
+            let mut locals = Vec::new();
+            for (j, f) in un.unnamed.iter().enumerate() {
+                let local = format!("{name}_{vi}_{j}");
+                let (line, arg) = map_input(&local, &f.ty, realistic, types)?;
+                if arg != local {
+                    return None;
+                }
+                lines.push(flat(line));
+                locals.push(local);
+            }
+            Some(format!(
+                "{{ {} {base}::{vname}({}) }}",
+                lines.join(" "),
+                locals.join(", ")
+            ))
+        }
+        syn::Fields::Named(nm) => {
+            let mut lines = Vec::new();
+            let mut inits = Vec::new();
+            for f in &nm.named {
+                let fname = f.ident.as_ref()?.to_string();
+                let local = format!("{name}_{vi}_{fname}");
+                let (line, arg) = map_input(&local, &f.ty, realistic, types)?;
+                if arg != local {
+                    return None;
+                }
+                lines.push(flat(line));
+                inits.push(format!("{fname}: {local}"));
+            }
+            Some(format!(
+                "{{ {} {base}::{vname} {{ {} }} }}",
+                lines.join(" "),
+                inits.join(", ")
+            ))
+        }
+    }
+}
+
+/// Synthesize a symbolic enum: pick a variant with a nondeterministic selector and
+/// construct it (binding that variant's fields). CBMC explores every arm, so every
+/// variant is verified. None if any variant has an unsupported/by-ref field.
+fn synth_enum(
+    name: &str,
+    base: &str,
+    variants: &[(String, syn::Fields)],
+    realistic: bool,
+    types: &Types,
+) -> Option<(String, String)> {
+    if variants.is_empty() {
+        return None; // uninhabited enum — nothing to construct
+    }
+    let n = variants.len();
+    let mut arms = Vec::new();
+    for (i, (vname, fields)) in variants.iter().enumerate() {
+        let ctor = variant_ctor(name, base, i, vname, fields, realistic, types)?;
+        // Last variant is the `_` catch-all so the match is exhaustive over `sel % n`.
+        let pat = if i + 1 == n {
+            "_".to_string()
+        } else {
+            i.to_string()
+        };
+        arms.push(format!("        {pat} => {ctor},"));
+    }
+    let body = format!(
+        "    let {name}_sel: usize = kani::any();\n    let {name}: {base} = match {name}_sel % {n} {{\n{}\n    }};",
+        arms.join("\n")
+    );
+    Some((body, name.to_string()))
+}
+
+/// True if a type binds (recursively, through struct fields and enum variants) a
+/// symbolic string — used to give string-bearing harnesses the lower str_unwind
+/// even when the string is nested inside a struct/enum param.
+fn type_has_string(ty: &syn::Type, types: &Types) -> bool {
     if is_string_type(ty) {
         return true;
     }
     if let Some((base, args)) = path_head(ty) {
         if args.is_empty() {
-            if let Some(fields) = structs.get(&base) {
-                return fields.iter().any(|(_, fty)| type_has_string(fty, structs));
+            if let Some(fields) = types.structs.get(&base) {
+                return fields.iter().any(|(_, fty)| type_has_string(fty, types));
+            }
+            if let Some(variants) = types.enums.get(&base) {
+                return variants
+                    .iter()
+                    .any(|(_, f)| f.iter().any(|field| type_has_string(&field.ty, types)));
             }
         }
     }
@@ -411,7 +531,7 @@ fn harness_for(
     func: &syn::ItemFn,
     realistic: bool,
     postcond: Option<&str>,
-    structs: &StructMap,
+    types: &Types,
 ) -> Result<String, String> {
     let name = func.sig.ident.to_string();
     let mut inputs = Vec::new();
@@ -424,9 +544,9 @@ fn harness_for(
                     syn::Pat::Ident(pi) => pi.ident.to_string(),
                     _ => return Err(format!("unsupported parameter pattern in `{name}`")),
                 };
-                stringy |= type_has_string(&pt.ty, structs);
-                let (line, arg_expr) = map_input(&pname, &pt.ty, realistic, structs).ok_or_else(|| {
-                    format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int], &str/String, tuples, same-file structs of these)", quote!(#pt))
+                stringy |= type_has_string(&pt.ty, types);
+                let (line, arg_expr) = map_input(&pname, &pt.ty, realistic, types).ok_or_else(|| {
+                    format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int], &str/String, tuples, same-file structs/enums of these)", quote!(#pt))
                 })?;
                 inputs.push(line);
                 args.push(arg_expr);
@@ -480,10 +600,10 @@ fn first_fn(file: &syn::File) -> Option<&syn::ItemFn> {
 /// Build a lib.rs for a SINGLE function (the first one) — used by --emit / --prove.
 fn build(src: &str, realistic: bool, postcond: Option<&str>) -> Result<(String, String), String> {
     let file = syn::parse_file(src).map_err(|e| format!("parse error: {e}"))?;
-    let structs = collect_structs(&file);
+    let types = collect_types(&file);
     let func = first_fn(&file).ok_or("no top-level function found")?;
     let name = func.sig.ident.to_string();
-    let harness = harness_for(func, realistic, postcond, &structs)?;
+    let harness = harness_for(func, realistic, postcond, &types)?;
     let lib = format!("{}\n\n{}\n\n{harness}\n", helper(), src.trim());
     Ok((name, lib))
 }
@@ -510,12 +630,12 @@ fn build_all(src: &str, realistic: bool) -> Result<(FnStatuses, String), String>
     if funcs.is_empty() {
         return Err("no top-level function found".into());
     }
-    let structs = collect_structs(&file);
+    let types = collect_types(&file);
     let mut statuses = Vec::new();
     let mut harnesses = Vec::new();
     for f in &funcs {
         let name = f.sig.ident.to_string();
-        match harness_for(f, realistic, None, &structs) {
+        match harness_for(f, realistic, None, &types) {
             Ok(h) => {
                 statuses.push((name, None));
                 harnesses.push(h);
@@ -679,9 +799,9 @@ mod tests {
         interpret_val_ctx(tok, LenHint::Vector)
     }
 
-    /// Empty struct registry for the map_input tests that don't exercise structs.
-    fn no_structs() -> super::StructMap {
-        super::StructMap::new()
+    /// Empty type registry for the map_input tests that don't exercise structs/enums.
+    fn no_types() -> super::Types {
+        super::Types::default()
     }
 
     #[test]
@@ -763,7 +883,7 @@ mod tests {
     #[test]
     fn unsupported_param_is_rejected() {
         // f64 is outside v0 scope (no float support) — must still reject cleanly.
-        assert!(map_input("x", &syn::parse_str("f64").unwrap(), false, &no_structs()).is_none());
+        assert!(map_input("x", &syn::parse_str("f64").unwrap(), false, &no_types()).is_none());
         assert!(build("fn f(x: f64) {}", false, None).is_err());
     }
 
@@ -815,6 +935,37 @@ mod tests {
     fn struct_with_unsupported_field_is_rejected() {
         // A float field is unsupported → the whole struct bounces cleanly (never wrong).
         let src = "struct P { x: f64 }\nfn f(p: P) -> i32 { 0 }";
+        assert!(build(src, false, None).is_err());
+    }
+
+    #[test]
+    fn fieldless_enum_param_selects_a_variant() {
+        // A C-like enum: pick a variant via a nondeterministic selector.
+        let src = "enum Dir { N, S, E, W }\nfn step(d: Dir) -> i32 { 0 }";
+        let (name, lib) = build(src, false, None).unwrap();
+        assert_eq!(name, "step");
+        assert!(lib.contains("let d_sel: usize = kani::any();"));
+        assert!(lib.contains("match d_sel % 4"));
+        assert!(lib.contains("0 => Dir::N,"));
+        assert!(lib.contains("_ => Dir::W,")); // last variant is the catch-all
+        assert!(lib.contains("let _ = step(d);"));
+    }
+
+    #[test]
+    fn enum_with_data_variants_binds_fields() {
+        // Tuple + struct + unit variants all synthesized.
+        let src = "enum Shape { Dot, Circle(u32), Rect { w: u32, h: u32 } }\n\
+                   fn area(s: Shape) -> u32 { 0 }";
+        let (_, lib) = build(src, false, None).unwrap();
+        assert!(lib.contains("0 => Shape::Dot,"));
+        assert!(lib.contains("Shape::Circle(s_1_0)"));
+        assert!(lib.contains("Shape::Rect { w: s_2_w, h: s_2_h }"));
+    }
+
+    #[test]
+    fn enum_with_unsupported_field_is_rejected() {
+        // A variant carrying a float bounces the whole enum (never a wrong answer).
+        let src = "enum E { A(f64), B }\nfn f(e: E) -> i32 { 0 }";
         assert!(build(src, false, None).is_err());
     }
 
@@ -982,6 +1133,13 @@ mod tests {
         assert_eq!(interpret_val("3ul"), "3 (usize → vector of length 3)");
     }
     #[test]
+    fn implausibly_large_usize_is_not_a_vector_length() {
+        // An enum selector / unconstrained usize far exceeds the bound (3) — must NOT
+        // be printed as a giant vector; show the raw number instead.
+        assert_eq!(interpret_val("9223372036854775807ul"), "9223372036854775807");
+        assert_eq!(interpret_val("500ul"), "500"); // 500 > bound(3) → plain
+    }
+    #[test]
     fn string_hint_renders_string_noun_not_vector() {
         // The exact gap this fixes: a usize length in a string function's witness
         // must read "string", not "vector".
@@ -1060,6 +1218,18 @@ fn interpret_val_ctx(tok: &str, hint: LenHint) -> String {
     };
     // A usize token is a symbolic collection length — Vec/slice or string, per hint.
     if suffix == "ul" || suffix == "usize" {
+        // A synthesized length is always ≤ the bound (`kani::assume(len <= bound)`).
+        // A larger usize can't be one of our lengths — it's an enum variant selector
+        // or an unconstrained usize param — so show it plainly, never as a giant
+        // "vector of length 9223372036854775807".
+        let max_len = match hint {
+            LenHint::Str => str_bound(),
+            LenHint::Ambiguous => bound().max(str_bound()),
+            LenHint::Vector => bound(),
+        };
+        if core.parse::<u128>().is_ok_and(|v| v > max_len as u128) {
+            return core.to_string();
+        }
         return match hint {
             LenHint::Str => match core {
                 "0" => "0 (usize → empty string)".to_string(),
