@@ -83,6 +83,15 @@ fn any_bounded_vec_ranged(bound: usize) -> Vec<i32> {{
     let mut v: Vec<i32> = Vec::with_capacity(len);
     for _ in 0..len {{ let x: i32 = kani::any(); kani::assume(x >= -{RANGE} && x <= {RANGE}); v.push(x); }}
     v
+}}
+fn any_bounded_string(bound: usize) -> String {{
+    // ASCII bytes are always valid UTF-8, so the string is well-formed by construction
+    // (the from_utf8 unwrap is provably safe — no harness-side panic).
+    let len: usize = kani::any();
+    kani::assume(len <= bound);
+    let mut bytes: Vec<u8> = Vec::with_capacity(len);
+    for _ in 0..len {{ let b: u8 = kani::any(); kani::assume(b < 128); bytes.push(b); }}
+    String::from_utf8(bytes).unwrap()
 }}"#
     )
 }
@@ -131,6 +140,15 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
             line += &format!("\n    kani::assume({name} <= {RANGE});");
         }
         return Some((line, name.to_string()));
+    }
+    // &str — bind a symbolic ASCII String and pass `&s` (coerces to &str).
+    if let syn::Type::Reference(r) = ty {
+        if let syn::Type::Path(tp) = &*r.elem {
+            if tp.path.is_ident("str") {
+                let line = format!("    let {name}: String = any_bounded_string({});", bound());
+                return Some((line, format!("&{name}")));
+            }
+        }
     }
     // &[int] / &mut [int] — bind a symbolic Vec and pass it by reference (a `&Vec`
     // coerces to `&[T]`). Covers slice params, extremely common in AI Rust.
@@ -185,6 +203,10 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
     }
     let (base, args) = path_head(ty)?;
     match (base.as_str(), args.as_slice()) {
+        ("String", []) => {
+            let line = format!("    let {name}: String = any_bounded_string({});", bound());
+            Some((line, name.to_string()))
+        }
         ("Vec", [inner]) => {
             let et = scalar_int(inner)?;
             Some((vec_binding(name, &et, realistic, false), name.to_string()))
@@ -227,7 +249,7 @@ fn harness_for(
                     _ => return Err(format!("unsupported parameter pattern in `{name}`")),
                 };
                 let (line, arg_expr) = map_input(&pname, &pt.ty, realistic).ok_or_else(|| {
-                    format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int], tuples)", quote!(#pt))
+                    format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int], &str/String, tuples)", quote!(#pt))
                 })?;
                 inputs.push(line);
                 args.push(arg_expr);
@@ -539,11 +561,11 @@ mod tests {
     #[test]
     fn build_all_emits_a_harness_per_function() {
         use super::build_all;
-        let src = "fn a(x: i32) -> i32 { x }\nfn b(s: &str) -> i32 { 0 }\nfn c(v: Vec<i32>) -> i32 { v[0] }";
+        let src = "fn a(x: i32) -> i32 { x }\nfn b(x: f64) -> i32 { 0 }\nfn c(v: Vec<i32>) -> i32 { v[0] }";
         let (statuses, lib) = build_all(src, false).unwrap();
         let names: Vec<&str> = statuses.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, vec!["a", "b", "c"]);
-        // a and c are supported → harnesses present; b (&str) is skipped with a reason
+        // a and c are supported → harnesses present; b (f64) is skipped with a reason
         assert!(statuses[0].1.is_none());
         assert!(statuses[1].1.is_some());
         assert!(statuses[2].1.is_none());
@@ -554,8 +576,21 @@ mod tests {
 
     #[test]
     fn unsupported_param_is_rejected() {
-        assert!(map_input("s", &syn::parse_str("&str").unwrap(), false).is_none());
-        assert!(build("fn f(s: &str) {}", false, None).is_err());
+        // f64 is outside v0 scope (no float support) — must still reject cleanly.
+        assert!(map_input("x", &syn::parse_str("f64").unwrap(), false).is_none());
+        assert!(build("fn f(x: f64) {}", false, None).is_err());
+    }
+
+    #[test]
+    fn str_and_string_params_supported() {
+        // &str binds a bounded symbolic ASCII String, passed by reference (coerces to &str).
+        let (_, lib) = build("fn f(s: &str) -> usize { s.len() }", false, None).unwrap();
+        assert!(lib.contains("let s: String = any_bounded_string(3);"));
+        assert!(lib.contains("let _ = f(&s);"));
+        // Owned String binds the same symbolic value, passed by move.
+        let (_, lib2) = build("fn g(s: String) -> usize { s.len() }", false, None).unwrap();
+        assert!(lib2.contains("let s: String = any_bounded_string(3);"));
+        assert!(lib2.contains("let _ = g(s);"));
     }
 
     #[test]
@@ -1105,7 +1140,7 @@ VERDICTS:
     ⏱️  INCONCLUSIVE didn't finish within {t}s/mode (exit 2)
     ⏭  unsupported  a type outside v0 scope — skipped cleanly
 
-Supported params: scalar ints, Vec<int>, Option<int>, &[int]/&mut [int], (int, int).
+Supported params: scalar ints, Vec<int>, Option<int>, &[int]/&mut [int], &str/String, (int, int).
 Requires Kani: cargo install --locked kani-verifier && cargo kani setup
 Docs: https://github.com/ss1738/cargo-aiv
 ",
