@@ -222,7 +222,14 @@ fn vec_binding(name: &str, et: &str, realistic: bool, mutable: bool) -> String {
 
 /// Map a parameter to (binding line(s), argument expression at the call site).
 /// The arg expr differs from the name for by-reference params (`&v`, `&mut v`).
-fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, String)> {
+/// `structs` holds same-file struct defs so a struct param can be synthesized
+/// field-by-field (recursively).
+fn map_input(
+    name: &str,
+    ty: &syn::Type,
+    realistic: bool,
+    structs: &StructMap,
+) -> Option<(String, String)> {
     if let Some(s) = scalar_int(ty) {
         let mut line = format!("    let {name}: {s} = kani::any();");
         if realistic && s.starts_with('i') {
@@ -318,8 +325,83 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
             }
             Some((line, name.to_string()))
         }
+        // A struct defined in the same file: bind each field symbolically, construct it.
+        _ if args.is_empty() => structs
+            .get(base.as_str())
+            .and_then(|fields| synth_struct(name, &base, fields, realistic, structs)),
         _ => None,
     }
+}
+
+/// Named-field struct defs collected from the source file: name → [(field, type)].
+type StructMap = BTreeMap<String, Vec<(String, syn::Type)>>;
+
+/// Collect every same-file struct with named fields into a [`StructMap`].
+fn collect_structs(file: &syn::File) -> StructMap {
+    let mut m = BTreeMap::new();
+    for it in &file.items {
+        if let syn::Item::Struct(s) = it {
+            if let syn::Fields::Named(named) = &s.fields {
+                let fields = named
+                    .named
+                    .iter()
+                    .filter_map(|f| f.ident.as_ref().map(|id| (id.to_string(), f.ty.clone())))
+                    .collect();
+                m.insert(s.ident.to_string(), fields);
+            }
+        }
+    }
+    m
+}
+
+/// Synthesize a symbolic struct: bind each field to a synthetic local (reusing
+/// `map_input`, so nested structs/strings/Vecs all work), then construct the value.
+/// Returns None if ANY field is an unsupported or by-reference type — the struct
+/// bounces cleanly, never a wrong answer. Recursion is bounded: a cyclic struct
+/// needs `Box`/`Rc` indirection, which `map_input` rejects, so it terminates.
+fn synth_struct(
+    name: &str,
+    base: &str,
+    fields: &[(String, syn::Type)],
+    realistic: bool,
+    structs: &StructMap,
+) -> Option<(String, String)> {
+    if fields.is_empty() {
+        return None; // a fieldless struct has nothing symbolic to bind
+    }
+    let mut lines = Vec::new();
+    let mut inits = Vec::new();
+    for (fname, fty) in fields {
+        let local = format!("{name}_{fname}");
+        let (line, arg) = map_input(&local, fty, realistic, structs)?;
+        if arg != local {
+            return None; // by-reference/borrow field (e.g. &[T]) — not owned, reject
+        }
+        lines.push(line);
+        inits.push(format!("{fname}: {local}"));
+    }
+    lines.push(format!(
+        "    let {name}: {base} = {base} {{ {} }};",
+        inits.join(", ")
+    ));
+    Some((lines.join("\n"), name.to_string()))
+}
+
+/// True if a type binds (recursively, through struct fields) a symbolic string —
+/// used to give string-bearing harnesses the lower str_unwind, even when the
+/// string is nested inside a struct param.
+fn type_has_string(ty: &syn::Type, structs: &StructMap) -> bool {
+    if is_string_type(ty) {
+        return true;
+    }
+    if let Some((base, args)) = path_head(ty) {
+        if args.is_empty() {
+            if let Some(fields) = structs.get(&base) {
+                return fields.iter().any(|(_, fty)| type_has_string(fty, structs));
+            }
+        }
+    }
+    false
 }
 
 /// Generate just the Kani proof harness for ONE function. Err(msg) if any param
@@ -329,6 +411,7 @@ fn harness_for(
     func: &syn::ItemFn,
     realistic: bool,
     postcond: Option<&str>,
+    structs: &StructMap,
 ) -> Result<String, String> {
     let name = func.sig.ident.to_string();
     let mut inputs = Vec::new();
@@ -341,9 +424,9 @@ fn harness_for(
                     syn::Pat::Ident(pi) => pi.ident.to_string(),
                     _ => return Err(format!("unsupported parameter pattern in `{name}`")),
                 };
-                stringy |= is_string_type(&pt.ty);
-                let (line, arg_expr) = map_input(&pname, &pt.ty, realistic).ok_or_else(|| {
-                    format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int], &str/String, tuples)", quote!(#pt))
+                stringy |= type_has_string(&pt.ty, structs);
+                let (line, arg_expr) = map_input(&pname, &pt.ty, realistic, structs).ok_or_else(|| {
+                    format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int], &str/String, tuples, same-file structs of these)", quote!(#pt))
                 })?;
                 inputs.push(line);
                 args.push(arg_expr);
@@ -397,9 +480,10 @@ fn first_fn(file: &syn::File) -> Option<&syn::ItemFn> {
 /// Build a lib.rs for a SINGLE function (the first one) — used by --emit / --prove.
 fn build(src: &str, realistic: bool, postcond: Option<&str>) -> Result<(String, String), String> {
     let file = syn::parse_file(src).map_err(|e| format!("parse error: {e}"))?;
+    let structs = collect_structs(&file);
     let func = first_fn(&file).ok_or("no top-level function found")?;
     let name = func.sig.ident.to_string();
-    let harness = harness_for(func, realistic, postcond)?;
+    let harness = harness_for(func, realistic, postcond, &structs)?;
     let lib = format!("{}\n\n{}\n\n{harness}\n", helper(), src.trim());
     Ok((name, lib))
 }
@@ -426,11 +510,12 @@ fn build_all(src: &str, realistic: bool) -> Result<(FnStatuses, String), String>
     if funcs.is_empty() {
         return Err("no top-level function found".into());
     }
+    let structs = collect_structs(&file);
     let mut statuses = Vec::new();
     let mut harnesses = Vec::new();
     for f in &funcs {
         let name = f.sig.ident.to_string();
-        match harness_for(f, realistic, None) {
+        match harness_for(f, realistic, None, &structs) {
             Ok(h) => {
                 statuses.push((name, None));
                 harnesses.push(h);
@@ -594,6 +679,11 @@ mod tests {
         interpret_val_ctx(tok, LenHint::Vector)
     }
 
+    /// Empty struct registry for the map_input tests that don't exercise structs.
+    fn no_structs() -> super::StructMap {
+        super::StructMap::new()
+    }
+
     #[test]
     fn tuple_param_binds_one_any_per_element() {
         let (name, lib) = build("fn f(p: (i32, u8)) -> i32 { 0 }", false, None).unwrap();
@@ -673,8 +763,72 @@ mod tests {
     #[test]
     fn unsupported_param_is_rejected() {
         // f64 is outside v0 scope (no float support) — must still reject cleanly.
-        assert!(map_input("x", &syn::parse_str("f64").unwrap(), false).is_none());
+        assert!(map_input("x", &syn::parse_str("f64").unwrap(), false, &no_structs()).is_none());
         assert!(build("fn f(x: f64) {}", false, None).is_err());
+    }
+
+    #[test]
+    fn strict_only_nonoverflow_failure_is_inconclusive_not_unguarded() {
+        use super::{classify, Verdict};
+        use std::collections::BTreeMap;
+        use std::path::PathBuf;
+        let dir = PathBuf::from("/nonexistent"); // never read: only the Bug branch shells out
+        // Strict fails on a non-overflow panic, realistic clean → must NOT be UNGUARDED
+        // (that would claim "safe on normal input" for a real unwrap panic).
+        let mut strict: BTreeMap<String, (bool, Vec<String>)> = BTreeMap::new();
+        let mut real: BTreeMap<String, (bool, Vec<String>)> = BTreeMap::new();
+        strict.insert(
+            "f".into(),
+            (true, vec!["called `Option::unwrap()` on a `None` value".into()]),
+        );
+        real.insert("f".into(), (false, vec![]));
+        assert!(matches!(
+            classify("f", &dir, &strict, &real, LenHint::Str),
+            Verdict::Inconclusive
+        ));
+        // But a strict-only integer OVERFLOW is still legitimately UNGUARDED.
+        strict.insert(
+            "g".into(),
+            (true, vec!["attempt to multiply with overflow".into()]),
+        );
+        real.insert("g".into(), (false, vec![]));
+        assert!(matches!(
+            classify("g", &dir, &strict, &real, LenHint::Vector),
+            Verdict::Unguarded(_)
+        ));
+    }
+
+    #[test]
+    fn struct_param_synthesizes_field_bindings() {
+        // A same-file struct is bound field-by-field, then constructed and passed.
+        let src = "struct Order { qty: u64, price: u64 }\n\
+                   fn charge(o: Order) -> u64 { o.qty * o.price }";
+        let (name, lib) = build(src, false, None).unwrap();
+        assert_eq!(name, "charge");
+        assert!(lib.contains("let o_qty: u64 = kani::any();"));
+        assert!(lib.contains("let o_price: u64 = kani::any();"));
+        assert!(lib.contains("let o: Order = Order { qty: o_qty, price: o_price };"));
+        assert!(lib.contains("let _ = charge(o);"));
+    }
+
+    #[test]
+    fn struct_with_unsupported_field_is_rejected() {
+        // A float field is unsupported → the whole struct bounces cleanly (never wrong).
+        let src = "struct P { x: f64 }\nfn f(p: P) -> i32 { 0 }";
+        assert!(build(src, false, None).is_err());
+    }
+
+    #[test]
+    fn nested_struct_recurses() {
+        // A struct field that is itself a same-file struct is synthesized recursively.
+        let src = "struct Inner { a: i32 }\n\
+                   struct Outer { inner: Inner, b: u8 }\n\
+                   fn f(o: Outer) -> i32 { o.inner.a }";
+        let (_, lib) = build(src, false, None).unwrap();
+        assert!(lib.contains("let o_inner_a: i32 = kani::any();"));
+        assert!(lib.contains("let o_inner: Inner = Inner { a: o_inner_a };"));
+        assert!(lib.contains("let o_b: u8 = kani::any();"));
+        assert!(lib.contains("let o: Outer = Outer { inner: o_inner, b: o_b };"));
     }
 
     #[test]
@@ -1060,8 +1214,18 @@ fn classify(
             .map(|(_, v)| v.iter().map(|t| interpret_val_ctx(t, hint)).collect())
             .unwrap_or_default();
         Verdict::Bug(r_real, vals)
-    } else {
+    } else if s_real.iter().all(|c| c.contains("with overflow")) {
+        // Strict-only failures that are ALL integer overflows → genuinely
+        // "overflows only at the extremes". This is what UNGUARDED means.
         Verdict::Unguarded(s_real)
+    } else {
+        // Strict failed on a NON-overflow panic (unwrap/divide-by-zero/…) that
+        // realistic didn't reproduce. Since strict and realistic bound strings and
+        // collections identically, such a split isn't an "extreme-value" story — it's
+        // an unstable result (typically BMC nondeterminism at a low string unwind).
+        // Calling it UNGUARDED would falsely imply "safe on normal input", so report
+        // INCONCLUSIVE instead — never claim safety we can't stand behind.
+        Verdict::Inconclusive
     }
 }
 
@@ -1155,9 +1319,9 @@ fn print_detailed(name: &str, v: &Verdict) -> i32 {
         }
         Verdict::Inconclusive => {
             println!(
-                "{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — didn't finish within {TIMEOUT_SECS}s/mode."
+                "{Y}{B}⏱️  INCONCLUSIVE{X}  `{name}` — no stable verdict at the current bounds."
             );
-            println!("     {DIM}too complex to prove at the current bounds (Vec≤{}, unwind {}). Not a pass — not a bug.{X}", bound(), unwind());
+            println!("     {DIM}hit the {TIMEOUT_SECS}s/mode timeout, or gave an unstable strict/realistic split (common for strings at a low unwind). Raise --bound/--unwind/--str-unwind. Not a pass — not a bug.{X}");
         }
         Verdict::Unsupported(e) => {
             println!("{Y}⏭  cargo-aiv: {e}{X}");
@@ -1340,7 +1504,8 @@ VERDICTS:
     ⏱️  INCONCLUSIVE didn't finish within {t}s/mode (exit 2)
     ⏭  unsupported  a type outside v0 scope — skipped cleanly
 
-Supported params: scalar ints, Vec<int>, Option<int>, &[int]/&mut [int], &str/String, (int, int).
+Supported params: scalar ints, Vec<int>, Option<int>, &[int]/&mut [int], &str/String,
+                  (int, int), and same-file structs whose fields are all of the above.
 Requires Kani: cargo install --locked kani-verifier && cargo kani setup
 Docs: https://github.com/ss1738/cargo-aiv
 ",

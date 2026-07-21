@@ -164,7 +164,9 @@ cargo-aiv path/to/function.rs
 parameters of scalar ints (`i8..u64`, `bool`),
 `Vec<int>`, `Option<int>`, int **slices** (`&[int]`, `&mut [int]`, `&Vec<int>` — mutation
 through `&mut` is verified too), **`&str`/`String`** (bound as a symbolic ASCII string,
-length ≤ bound), and **tuples of scalar ints** (`(i32, i32)`, …) as params;
+length ≤ bound), **tuples of scalar ints** (`(i32, i32)`, …), and **same-file structs**
+(named fields, each of a supported type — nested structs recurse; a struct with any
+unsupported field bounces cleanly) as params;
 tuple returns work in both default and `--prove` mode (`result.0`, `result.1`). Property:
 **panic-freedom + integer overflow**, bounded (Vec ≤ 3, loops unwound ≤ 5). **Idiomatic iterator chains verify fine** — `.iter().map().filter()
 .collect()`, `.fold()`, `.scan()`, `.enumerate()`, `.max_by_key()` all lower into the bounded
@@ -184,13 +186,22 @@ Raise `--str-bound`/`--str-unwind` for more coverage at higher cost. Heavy text 
 The witness names the string length correctly ("empty string", "1-char string"); individual
 character bytes are still shown as their numeric code (e.g. `43` for `'+'`).
 
+**On structs, honestly:** a struct of scalar fields verifies as fast as its fields
+(`charge(o: Order) → o.qty * o.price` is 🟡 UNGUARDED in under a second). A struct that
+*contains a `String`* inherits string cost — and when it also carries other symbolic fields
+it can sit right at the BMC tractability edge, where the strict/realistic split turns
+unstable. cargo-aiv reports that as ⏱️ INCONCLUSIVE, never a false 🟡/✅. (The witness for a
+struct field currently uses the `Vec` length-noun; the reproducing value is still correct.)
+
 **Tuning the rigor:** `--bound N` sets the max Vec/slice length checked (default 3),
-`--unwind N` the loop-unroll depth (default 5). Higher = more coverage, slower. A
-✅ VERIFIED is only a proof *within* these bounds — raise them for stronger guarantees.
+`--unwind N` the loop-unroll depth (default 5); strings get their own decoupled
+`--str-bound N` (default 1) and `--str-unwind N` (default 2) because they are far costlier
+under BMC. Higher = more coverage, slower. A ✅ VERIFIED is only a proof *within* these
+bounds — raise them for stronger guarantees.
 
 **Not yet:** functional correctness ("does it sort?"), `unsafe`, generics/traits, floats,
-recursion, unbounded loops, external crates, `&str`/`String`, custom types. These are
-rejected cleanly (⏭), never answered wrongly.
+recursion, unbounded loops, external crates, enums, tuple structs, and structs defined
+outside the file under test. These are rejected cleanly (⏭), never answered wrongly.
 
 ## License
 
