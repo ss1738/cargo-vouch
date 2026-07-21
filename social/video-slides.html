@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cargo-vouch video slides</title>
+<style>
+  :root{
+    --ground:#F4F5F3; --ink:#14181A; --muted:#5B6560; --faint:#8A938D;
+    --accent:#17795A; --accent-2:#136A4E; --soft:#E4EEE9; --line:#E1E4DF;
+    --term:#0C1210; --term-line:#1A2420; --cmd:#D6DEDA; --dim:#7C8A83;
+    --red:#FF6B66; --amber:#F2B23C; --green:#34D399;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#333;font-family:var(--sans)}
+  /* solo-export: with a #hash, show only the targeted slide at 0,0 */
+  .slide{width:1920px;height:1080px;position:relative;overflow:hidden;display:block}
+  :root:has(:target) .slide{display:none}
+  :root:has(:target) .slide:target{display:block;position:absolute;top:0;left:0}
+  .pad{position:absolute;inset:0;padding:110px 130px;display:flex;flex-direction:column}
+
+  .eyebrow{font-family:var(--mono);font-size:26px;letter-spacing:.16em;text-transform:uppercase;font-weight:700}
+  .h1{font-size:104px;font-weight:800;letter-spacing:-.025em;line-height:1.0;text-wrap:balance}
+  .h2{font-size:74px;font-weight:800;letter-spacing:-.02em;line-height:1.05;text-wrap:balance}
+  .lead{font-size:40px;line-height:1.35;font-weight:500;color:var(--muted)}
+  .spacer{flex:1}
+  .foot{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:26px;color:var(--muted)}
+  .foot b{color:var(--accent)}
+  .pill{display:inline-flex;align-items:center;gap:12px;font-family:var(--mono);font-size:28px;font-weight:600;
+        border:2px solid var(--soft);background:#fff;color:var(--accent);border-radius:999px;padding:14px 28px}
+
+  /* wordmark */
+  .brand{display:flex;align-items:center;gap:22px}
+  .seal{width:78px;height:78px;border-radius:18px;background:var(--accent);color:#fff;font-family:var(--mono);
+        font-weight:700;font-size:46px;display:flex;align-items:center;justify-content:center}
+  .wm{font-family:var(--mono);font-weight:700;font-size:60px;color:var(--ink);letter-spacing:-.01em}
+  .wm b{color:var(--accent)}
+
+  /* terminal */
+  .term{background:var(--term);border-radius:20px;overflow:hidden;border:1px solid #05100c;
+        box-shadow:0 40px 90px -40px rgba(8,14,12,.6);display:flex;flex-direction:column}
+  .bar{display:flex;align-items:center;gap:12px;padding:0 26px;height:60px;border-bottom:1px solid var(--term-line);color:var(--dim);font-family:var(--mono);font-size:22px}
+  .dot{width:15px;height:15px;border-radius:50%}
+  .bar .t{margin-left:12px}
+  .tbody{font-family:var(--mono);color:var(--cmd);font-size:34px;line-height:1.6;padding:44px 50px;
+         display:flex;flex-direction:column;gap:.5em;font-variant-numeric:tabular-nums;flex:1;justify-content:center}
+  .prompt{color:#8FA69C} .r{color:var(--red)} .a{color:var(--amber)} .g{color:var(--green)} .m{color:var(--dim)}
+  .kw{color:#C58AF0} .fn{color:#7FB0FF} .num{color:#E8B84B} .str{color:#8FD9A8}
+  /* verdict grid */
+  .tg{display:grid;grid-template-columns:max-content max-content 1fr max-content;gap:.55em 1.4em;align-items:baseline}
+  .tg span{white-space:nowrap} .tg .wit{justify-self:end;color:var(--dim)}
+
+  /* backgrounds */
+  .light{background:var(--ground);color:var(--ink)}
+  .light .eyebrow{color:var(--accent)}
+  .fill{background:var(--accent-2);color:#fff}
+  .fill .eyebrow{color:#BFE6D6} .fill .lead{color:#DDF0E8} .fill .foot{color:#CDEBDF} .fill .foot b{color:#fff}
+
+  .codechip{font-family:var(--mono);font-size:34px;background:#fff;border:1px solid var(--line);border-radius:14px;
+            padding:22px 30px;color:var(--ink);display:inline-block}
+  .codechip .kw{color:#8A4FC0}.codechip .fn{color:#2563c9}
+  .tick{color:var(--accent);font-weight:700}
+  .redword{color:#D4443F;font-weight:700}
+</style>
+</head>
+<body>
+
+<!-- 1 HOOK -->
+<div class="slide light" id="s1"><div class="pad">
+  <div class="eyebrow">An AI wrote this</div>
+  <div class="spacer"></div>
+  <div class="h1" style="max-width:1400px">It passed <span style="font-family:var(--mono);font-weight:700">cargo&nbsp;test</span>.<br>It still <span class="redword">panics</span>.</div>
+  <div class="codechip" style="margin-top:56px"><span class="kw">fn</span> <span class="fn">sum_vec</span>(numbers: &[i32]) -&gt; i32 { numbers.iter().sum() }&nbsp;&nbsp;<span class="tick">✓ test passed</span></div>
+  <div class="spacer"></div>
+  <div class="foot"><span>cargo-<b>vouch</b></span><span>github.com/ss1738/cargo-vouch</span></div>
+</div></div>
+
+<!-- 2 THE BUG -->
+<div class="slide light" id="s2"><div class="pad">
+  <div class="eyebrow">The input your tests never tried</div>
+  <div class="spacer"></div>
+  <div class="term">
+    <div class="bar"><span class="dot" style="background:#FF5F56"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span><span class="t">sum_vec on [i32::MAX, 1]</span></div>
+    <div class="tbody">
+      <span><span class="kw">fn</span> <span class="fn">sum_vec</span>(numbers: &<span class="kw">[i32]</span>) -&gt; i32 {</span>
+      <span>&nbsp;&nbsp;&nbsp;&nbsp;numbers.iter().sum()</span>
+      <span>}</span>
+      <span style="margin-top:.4em" class="r">thread 'main' panicked: attempt to add with overflow</span>
+      <span class="m">input: [<span class="num" style="color:#E8B84B">2147483647</span>, <span class="num" style="color:#E8B84B">1</span>]  // i32::MAX + 1</span>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="foot"><span>cargo-<b>vouch</b></span><span>a real panic, on ordinary input</span></div>
+</div></div>
+
+<!-- 3 INTRO -->
+<div class="slide light" id="s3"><div class="pad">
+  <div class="brand"><span class="seal">✓</span><span class="wm">cargo-<b>vouch</b></span></div>
+  <div class="spacer"></div>
+  <div class="h1" style="max-width:1450px">Prove a Rust function<br>can’t panic.</div>
+  <div style="margin-top:52px;display:flex;gap:22px">
+    <span class="pill">zero annotations</span>
+    <span class="pill">built on Kani</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="foot"><span>a proof, not a test</span><span>cargo install <b>cargo-vouch</b></span></div>
+</div></div>
+
+<!-- 4 HOW -->
+<div class="slide light" id="s4"><div class="pad">
+  <div class="eyebrow">Point it at a file</div>
+  <div class="spacer"></div>
+  <div class="term">
+    <div class="bar"><span class="dot" style="background:#FF5F56"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span><span class="t">cargo vouch</span></div>
+    <div class="tbody">
+      <span class="prompt">$ cargo vouch stats.rs</span>
+      <span class="m">→ generating a Kani proof harness for every function</span>
+      <span class="m">→ symbolic input: kani::any() over the full domain</span>
+      <span class="g">→ checking every input in bounds …</span>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="foot"><span>cargo-<b>vouch</b></span><span>no test cases to write</span></div>
+</div></div>
+
+<!-- 5 VERDICTS -->
+<div class="slide light" id="s5"><div class="pad">
+  <div class="eyebrow">A verdict, with the exact input</div>
+  <div class="spacer"></div>
+  <div class="term">
+    <div class="bar"><span class="dot" style="background:#FF5F56"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span><span class="t">cargo vouch stats.rs</span></div>
+    <div class="tbody"><div class="tg">
+      <span class="r">🔴 BUG</span><span>mean</span><span class="m">divide by zero</span><span class="wit">← []</span>
+      <span class="a">🟡 UNGUARDED</span><span>total</span><span class="m">i32 overflow</span><span class="wit">← [i32::MAX]</span>
+      <span class="g">✅ VERIFIED</span><span>clamp_page</span><span class="m">panic-free</span><span class="wit"></span>
+    </div></div>
+  </div>
+  <div class="spacer"></div>
+  <div class="foot"><span>cargo-<b>vouch</b></span><span>it never fakes a pass</span></div>
+</div></div>
+
+<!-- 6 CTA -->
+<div class="slide fill" id="s6"><div class="pad">
+  <div class="eyebrow">Open source · MIT</div>
+  <div class="spacer"></div>
+  <div class="h1" style="max-width:1500px">Prove your Rust can’t panic.<br>Not tests. Proofs.</div>
+  <div class="codechip" style="margin-top:56px;background:#0C120F;color:#EAF7F1;border:none;font-size:40px">cargo install cargo-vouch</div>
+  <div class="spacer"></div>
+  <div class="foot"><span>github.com/ss1738/<b style="color:#fff">cargo-vouch</b></span><span>built on Kani</span></div>
+</div></div>
+
+</body>
+</html>
