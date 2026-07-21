@@ -3,6 +3,18 @@
 All notable changes to `cargo-vouch`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is SemVer.
 
+## [0.3.2]
+
+### Fixed
+- **Narrow integer types (`i8`, `u8`) now verify.** The realistic-mode bound clamped
+  scalars to `±1000`, but that literal does not fit `i8` (-128..127) or `u8` (0..255),
+  so those harnesses failed to compile and the function came back INCONCLUSIVE. Worse,
+  because a file's harnesses compile together, one narrow-type function silently
+  poisoned every other function in the same file (they all went INCONCLUSIVE too).
+  `i8`/`u8` now skip the clamp (their whole domain is already within the realistic
+  range). Measured on a 26-function embedded corpus this lifted definitive verdicts
+  from 85% to 92% with zero INCONCLUSIVE (only genuine floats stay UNSUPPORTED).
+
 ## [0.3.0]
 
 ### Added
