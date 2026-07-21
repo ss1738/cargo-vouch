@@ -341,8 +341,9 @@ fn map_input(
     }
 }
 
-/// Named-field struct defs collected from the source file: name → [(field, type)].
-type StructMap = BTreeMap<String, Vec<(String, syn::Type)>>;
+/// Struct defs collected from the source file: name → its fields (named, tuple, or
+/// unit — the `syn::Fields` carries the shape, so one code path handles all three).
+type StructMap = BTreeMap<String, syn::Fields>;
 /// Enum defs collected from the source file: name → [(variant, its fields)].
 type EnumMap = BTreeMap<String, Vec<(String, syn::Fields)>>;
 
@@ -353,20 +354,13 @@ struct Types {
     enums: EnumMap,
 }
 
-/// Collect every same-file struct (named fields) and enum into a [`Types`] registry.
+/// Collect every same-file struct (named/tuple/unit) and enum into a [`Types`] registry.
 fn collect_types(file: &syn::File) -> Types {
     let mut t = Types::default();
     for it in &file.items {
         match it {
             syn::Item::Struct(s) => {
-                if let syn::Fields::Named(named) = &s.fields {
-                    let fields = named
-                        .named
-                        .iter()
-                        .filter_map(|f| f.ident.as_ref().map(|id| (id.to_string(), f.ty.clone())))
-                        .collect();
-                    t.structs.insert(s.ident.to_string(), fields);
-                }
+                t.structs.insert(s.ident.to_string(), s.fields.clone());
             }
             syn::Item::Enum(e) => {
                 let variants = e
@@ -384,35 +378,58 @@ fn collect_types(file: &syn::File) -> Types {
 
 /// Synthesize a symbolic struct: bind each field to a synthetic local (reusing
 /// `map_input`, so nested structs/enums/strings/Vecs all work), then construct the
-/// value. Returns None if ANY field is an unsupported or by-reference type — the
-/// struct bounces cleanly, never a wrong answer. Recursion is bounded: a cyclic type
-/// needs `Box`/`Rc`/`Vec` indirection, which `map_input` rejects, so it terminates.
+/// value — `Base { f: v }` for a named struct, `Base(v0, v1)` for a tuple struct,
+/// `Base` for a unit struct. Returns None if ANY field is an unsupported or
+/// by-reference type — the struct bounces cleanly, never a wrong answer. Recursion is
+/// bounded: a cyclic type needs `Box`/`Rc`/`Vec` indirection, which `map_input`
+/// rejects, so it terminates.
 fn synth_struct(
     name: &str,
     base: &str,
-    fields: &[(String, syn::Type)],
+    fields: &syn::Fields,
     realistic: bool,
     types: &Types,
 ) -> Option<(String, String)> {
-    if fields.is_empty() {
-        return None; // a fieldless struct has nothing symbolic to bind
-    }
-    let mut lines = Vec::new();
-    let mut inits = Vec::new();
-    for (fname, fty) in fields {
-        let local = format!("{name}_{fname}");
-        let (line, arg) = map_input(&local, fty, realistic, types)?;
-        if arg != local {
-            return None; // by-reference/borrow field (e.g. &[T]) — not owned, reject
+    match fields {
+        syn::Fields::Unit => Some((format!("    let {name}: {base} = {base};"), name.to_string())),
+        syn::Fields::Named(nm) => {
+            let mut lines = Vec::new();
+            let mut inits = Vec::new();
+            for f in &nm.named {
+                let fname = f.ident.as_ref()?.to_string();
+                let local = format!("{name}_{fname}");
+                let (line, arg) = map_input(&local, &f.ty, realistic, types)?;
+                if arg != local {
+                    return None; // by-reference/borrow field (e.g. &[T]) — not owned
+                }
+                lines.push(line);
+                inits.push(format!("{fname}: {local}"));
+            }
+            lines.push(format!(
+                "    let {name}: {base} = {base} {{ {} }};",
+                inits.join(", ")
+            ));
+            Some((lines.join("\n"), name.to_string()))
         }
-        lines.push(line);
-        inits.push(format!("{fname}: {local}"));
+        syn::Fields::Unnamed(un) => {
+            let mut lines = Vec::new();
+            let mut locals = Vec::new();
+            for (j, f) in un.unnamed.iter().enumerate() {
+                let local = format!("{name}_{j}");
+                let (line, arg) = map_input(&local, &f.ty, realistic, types)?;
+                if arg != local {
+                    return None;
+                }
+                lines.push(line);
+                locals.push(local);
+            }
+            lines.push(format!(
+                "    let {name}: {base} = {base}({});",
+                locals.join(", ")
+            ));
+            Some((lines.join("\n"), name.to_string()))
+        }
     }
-    lines.push(format!(
-        "    let {name}: {base} = {base} {{ {} }};",
-        inits.join(", ")
-    ));
-    Some((lines.join("\n"), name.to_string()))
 }
 
 /// Build the constructor expression for one enum variant, binding each of its
@@ -512,7 +529,7 @@ fn type_has_string(ty: &syn::Type, types: &Types) -> bool {
     if let Some((base, args)) = path_head(ty) {
         if args.is_empty() {
             if let Some(fields) = types.structs.get(&base) {
-                return fields.iter().any(|(_, fty)| type_has_string(fty, types));
+                return fields.iter().any(|f| type_has_string(&f.ty, types));
             }
             if let Some(variants) = types.enums.get(&base) {
                 return variants
@@ -936,6 +953,29 @@ mod tests {
         // A float field is unsupported → the whole struct bounces cleanly (never wrong).
         let src = "struct P { x: f64 }\nfn f(p: P) -> i32 { 0 }";
         assert!(build(src, false, None).is_err());
+    }
+
+    #[test]
+    fn tuple_struct_and_newtype_are_synthesized() {
+        // Tuple struct: positional fields → Base(v0, v1).
+        let src = "struct Point(i32, i32);\nfn sum(p: Point) -> i32 { p.0 + p.1 }";
+        let (_, lib) = build(src, false, None).unwrap();
+        assert!(lib.contains("let p_0: i32 = kani::any();"));
+        assert!(lib.contains("let p_1: i32 = kani::any();"));
+        assert!(lib.contains("let p: Point = Point(p_0, p_1);"));
+        assert!(lib.contains("let _ = sum(p);"));
+        // Newtype: a single-field tuple struct.
+        let src2 = "struct UserId(u64);\nfn f(id: UserId) -> u64 { id.0 }";
+        let (_, lib2) = build(src2, false, None).unwrap();
+        assert!(lib2.contains("let id_0: u64 = kani::any();"));
+        assert!(lib2.contains("let id: UserId = UserId(id_0);"));
+    }
+
+    #[test]
+    fn unit_struct_is_synthesized() {
+        let src = "struct Marker;\nfn f(_m: Marker) -> i32 { 0 }";
+        let (_, lib) = build(src, false, None).unwrap();
+        assert!(lib.contains("let _m: Marker = Marker;"));
     }
 
     #[test]
