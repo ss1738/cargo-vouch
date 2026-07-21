@@ -74,7 +74,7 @@ tool says ⏱️ INCONCLUSIVE rather than fake a ✅.
 
 ```bash
 cargo install --locked kani-verifier && cargo-kani setup   # the verification engine
-cargo install cargo-vouch
+git clone https://github.com/ss1738/cargo-vouch && cargo install --path cargo-vouch/cli
 cargo-vouch src/                                              # your whole crate, or one file
 ```
 
