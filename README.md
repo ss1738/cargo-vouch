@@ -282,6 +282,21 @@ input: empty vector") is fed back as the repair instruction — until it's ✅ V
 or the agent gives up. The model's own claim is never trusted; an independent
 bounded model checker is the oracle.
 
+```mermaid
+flowchart LR
+    A["natural-language spec"] --> B["LLM writes a Rust function<br/>(Claude)"]
+    B --> C["cargo-vouch verifies it"]
+    C --> D{"verdict?"}
+    D -->|"🔴 BUG · 🟡 UNGUARDED · ⏱️ INCONCLUSIVE"| E["feed the counterexample back<br/>as the repair instruction"]
+    E --> B
+    D -->|"✅ VERIFIED"| F["done — proven, not just tested"]
+
+    classDef ok fill:#E6F0EB,stroke:#17795A,color:#0e4a37;
+    classDef fix fill:#FBF2DD,stroke:#C98A00,color:#5a3d00;
+    class F ok
+    class E fix
+```
+
 ```console
 $ python vouch_agent.py "the average of a slice of i32"
 ── iteration 1 ──  fn average(xs:&[i32])->i32 { xs.iter().sum::<i32>()/xs.len() as i32 }
