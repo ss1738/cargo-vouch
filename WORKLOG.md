@@ -1,14 +1,14 @@
-# cargo-vouch — Work Log
+# cargo-vouch, Work Log
 
-## Week 1 — Spike / de-risk (goal: does Kani actually catch bugs in AI-generated Rust, fast?)
+## Week 1, Spike / de-risk (goal: does Kani actually catch bugs in AI-generated Rust, fast?)
 
-### Day 1 — 2026-07-20  ✅ CORE RISK DE-RISKED
+### Day 1, 2026-07-20  ✅ CORE RISK DE-RISKED
 
 **Done:**
 - Project set up at `~/cargo-vouch/` (`corpus/`, `harnesses/`, `spike/`).
 - Toolchain: Rust 1.94 present; **Kani 0.67.0 installed** (`cargo install --locked kani-verifier` + `cargo-kani setup`, ~first-time CBMC download).
-- **Corpus generated** (`corpus/*.rs`, `corpus/manifest.json`): 12 AI-authored Rust utility fns via GPT-4o — 6 seeded-buggy (empty-vec `unwrap`, div-by-zero, overflow), 6 "correct". Realistic Copilot-style code.
-- **Hand-written Kani harnesses** for 3 (`harnesses/examples.rs`) — the pattern the generator will auto-produce (signature → bounded symbolic inputs, `unwind(5)`).
+- **Corpus generated** (`corpus/*.rs`, `corpus/manifest.json`): 12 AI-authored Rust utility fns via GPT-4o, 6 seeded-buggy (empty-vec `unwrap`, div-by-zero, overflow), 6 "correct". Realistic Copilot-style code.
+- **Hand-written Kani harnesses** for 3 (`harnesses/examples.rs`), the pattern the generator will auto-produce (signature → bounded symbolic inputs, `unwind(5)`).
 - **Ran `cargo kani` on the AI code.** Result:
 
 | Harness | AI's label | Kani verdict | Bug found |
@@ -19,16 +19,16 @@
 
 `Complete - 0 successfully verified, 3 failures, 3 total.` Each ran in **<1s**.
 
-**The result that matters:** `sum_vec` was labelled *correct* by the AI and would **pass `cargo test`**, but Kani **proved it overflows** (`[i32::MAX, 1]`). That single example is the product thesis, the demo, and exhibit A of "The Panic Log" — all on day 1.
+**The result that matters:** `sum_vec` was labelled *correct* by the AI and would **pass `cargo test`**, but Kani **proved it overflows** (`[i32::MAX, 1]`). That single example is the product thesis, the demo, and exhibit A of "The Panic Log", all on day 1.
 
 **Risk status:**
-- ✅ "Kani chokes on AI Rust / too slow" — **cleared for these shapes** (<1s each). Kill criterion (>60% verify in <60s) already met.
-- ⏳ still to test wk 1–2: iterator-heavy fns (`.iter().map().filter().collect()`) — the real timeout risk.
+- ✅ "Kani chokes on AI Rust / too slow", **cleared for these shapes** (<1s each). Kill criterion (>60% verify in <60s) already met.
+- ⏳ still to test wk 1-2: iterator-heavy fns (`.iter().map().filter().collect()`), the real timeout risk.
 
 **Next (Week 1 remainder):**
-1. Run the full 12-fn corpus through Kani (hand-harnesses) — record verify-time + timeout rate; add iterator-heavy + `String`-parsing fns to stress it.
+1. Run the full 12-fn corpus through Kani (hand-harnesses), record verify-time + timeout rate; add iterator-heavy + `String`-parsing fns to stress it.
 2. Start the `syn`-based **signature parser** → auto-emit the harness stub (replace hand-writing). Target: `i32`, `Vec<i32>`, `Option<i32>`, tuples≤3.
-3. Draft the **ANALYSIS_ERROR vs BUG_FOUND classifier** design (the precondition-gap trust-killer) — the core quality mechanism.
+3. Draft the **ANALYSIS_ERROR vs BUG_FOUND classifier** design (the precondition-gap trust-killer), the core quality mechanism.
 
 ### How to reproduce today's spike
 ```bash
@@ -39,10 +39,10 @@ cd ~/cargo-vouch/spike && cargo kani        # runs the 3 harnesses in src/lib.rs
 ---
 _(append Day 2… below)_
 
-### Day 1 (cont.) — auto-harness generator + full corpus
+### Day 1 (cont.), auto-harness generator + full corpus
 
 **Done:**
-- `gen_harness.py` — v0 harness generator: parses fn signature, maps types → symbolic
+- `gen_harness.py`, v0 harness generator: parses fn signature, maps types → symbolic
   inputs (`iN`→`kani::any()`, `Vec<iN>`→bounded vec, `Option<iN>`→any), emits `#[kani::proof]`.
   Ports to Rust/`syn` for the product; validates the mapping logic now.
 - Ran generator on all 12 corpus fns: **11 auto-harnessed, `parse_number` (&str) correctly
@@ -53,44 +53,43 @@ _(append Day 2… below)_
 |---|---|
 | remove_last, prepend_zero, get_third | divide (÷0+overflow), find_max (empty unwrap), double_first (unwrap+mul), subtract_min (sub/add overflow+unwrap), average (overflow+NaN÷), **sum_vec, increment_all, square_sum (overflow)** |
 
-**Key finding:** GPT labelled 6 buggy / 6 correct; Kani found **8** — the 3 extra
+**Key finding:** GPT labelled 6 buggy / 6 correct; Kani found **8**, the 3 extra
 (sum_vec, increment_all, square_sum) are overflow bugs in fns the AI called "correct"
 and `cargo test` would pass. The verifier out-judges the AI on its own code.
 
 **Precondition-gap note (the #1 trust-killer, now concrete):** the overflow "bugs" in
 AI-"correct" fns are real panics on adversarial input (i32::MAX) but a user may say
 "I won't pass that". Week-1 item 3 (ANALYSIS_ERROR vs BUG_FOUND classifier + conservative
-`assume` defaults) is exactly what separates a genuine bug from "needs adversarial input" —
-this is the core quality mechanism to build next.
+`assume` defaults) is exactly what separates a genuine bug from "needs adversarial input", this is the core quality mechanism to build next.
 
 **Reproduce:** `python3 gen_harness.py && cd spike2 && cargo kani`
 
-### Day 1 (cont.) — precondition-gap classifier (the anti-cry-wolf engine)  ✅ item 3 done
+### Day 1 (cont.), precondition-gap classifier (the anti-cry-wolf engine)  ✅ item 3 done
 
-**Done:** `classify.py` — verifies each fn in TWO modes (strict: all of i32; realistic:
+**Done:** `classify.py`, verifies each fn in TWO modes (strict: all of i32; realistic:
 values ∈ [-1000,1000]) and classifies:
 - strict FAIL + realistic FAIL → **BUG** (reachable on ordinary input)
-- strict FAIL + realistic PASS → **UNGUARDED** (overflow only at i32::MAX/MIN — downgrade)
+- strict FAIL + realistic PASS → **UNGUARDED** (overflow only at i32::MAX/MIN, downgrade)
 - strict PASS → **VERIFIED**
 
 **Corpus result:** 5 real BUGS · 3 UNGUARDED · 3 VERIFIED.
 The 3 UNGUARDED (sum_vec, increment_all, square_sum) are exactly the fns the AI labelled
-"correct" and the naive verifier screamed BUG about — now correctly downgraded, while
+"correct" and the naive verifier screamed BUG about, now correctly downgraded, while
 empty-vec unwraps / divide-by-zero / NaN stay flagged as real. **The precondition-gap
-trust-killer is solved in v0.** (Note: `average` NaN-on-empty is flagged as BUG — arguably
+trust-killer is solved in v0.** (Note: `average` NaN-on-empty is flagged as BUG, arguably
 a silent-bad-value defect, not a panic; a judgment call to expose in the product.)
 
-**Week 1 status: all 3 planned items DONE on Day 1** — corpus + spike, auto-harness
+**Week 1 status: all 3 planned items DONE on Day 1**, corpus + spike, auto-harness
 generator, precondition classifier. The technical core is de-risked and working end to end.
 **Reproduce:** `python3 classify.py`
 
 **Next (Week 2, MVP):** port harness-gen to Rust/`syn`; counterexample→source-line mapping;
 package as `cargo install cargo-vouch`; add the sanity/meta-soundness mode; widen corpus.
 
-## Week 2 — MVP
+## Week 2, MVP
 
 ### Port harness generator to Rust/`syn`  ✅ (the product core, no more Python)
-**Done:** `cli/` — real `cargo-vouch` binary (syn 2.x). Parses a single-fn `.rs`, maps param
+**Done:** `cli/`, real `cargo-vouch` binary (syn 2.x). Parses a single-fn `.rs`, maps param
 types → symbolic inputs (scalar ints, `Vec<int>`, `Option<int>`), emits `<fn> + #[kani::proof]`.
 - `cargo-vouch corpus/06_find_max.rs` → correct harness (`any_bounded_vec::<i32>(3)`).
 - `cargo-vouch corpus/07_parse_number.rs` (&str) → **cleanly rejected**, exit 1, clear message.
@@ -116,7 +115,7 @@ The dual-mode classifier is now inside the tool; no external scripts needed. Thi
 numbers=vec![]"); README + publish to crates.io; sanity/meta-soundness mode; widen corpus
 (iterators, structs).
 
-### Counterexample extraction  ✅ (the "whoa" — show the triggering input)
+### Counterexample extraction  ✅ (the "whoa", show the triggering input)
 **Done:** on a BUG, the tool re-runs the failing harness with `--concrete-playback=print`,
 parses the generated test's annotated values, and shows the input that triggers the panic:
 - `find_max` → 🔴 BUG unwrap on None, **reachable with `0ul`** (vec len 0 = empty vector)
@@ -128,7 +127,7 @@ Now: verdict + exact failure + triggering input, in one command.
 overflow); sanity/meta-soundness mode; widen corpus (iterators, structs).
 
 ### Shippable: install + README + LICENSE  ✅
-**Done:** `cargo install --path cli` works — `cargo-vouch` is a real installed command.
+**Done:** `cargo install --path cli` works, `cargo-vouch` is a real installed command.
 Wrote README.md (hook: the sum_vec "AI said correct, Kani proved overflow" demo; install
 w/ Kani prereq; verdicts; how-it-works; honest v0 scope) + MIT LICENSE. **The tool is now
 publishable to crates.io / GitHub.**
@@ -136,7 +135,7 @@ publishable to crates.io / GitHub.**
 **Next (to actually launch):** publish to crates.io; the "Panic Log" HN post; value
 interpretation (0ul → "empty vector"); sanity mode; widen corpus (iterators, structs).
 
-## Week 2 — iterator de-risk + timeout/INCONCLUSIVE verdict
+## Week 2, iterator de-risk + timeout/INCONCLUSIVE verdict
 
 Tested the top-flagged risk (iterator path explosion) with 5 GPT-generated
 iterator-heavy fns (map/filter/into_iter/collect/enumerate/max_by_key/scan/fold)
@@ -153,14 +152,14 @@ iterator-heavy fns (map/filter/into_iter/collect/enumerate/max_by_key/scan/fold)
 - **No path explosion, no timeouts.** Iterator chains lower into the bounded
   loop and verify correctly → iterators are IN SCOPE. Good news for coverage.
 - **But latency scales with adapter complexity** (7s → 51s). A stuck function
-  would previously hang forever — unusable in CI.
+  would previously hang forever, unusable in CI.
 - **Fix:** `kani_output()` now spawns Kani with piped stdout/stderr drained on
   threads (no pipe-buffer deadlock) and kills it past `TIMEOUT_SECS=120`/mode.
-  New verdict ⏱️ **INCONCLUSIVE** (exit 2) — "not a pass, not a bug." Proved the
+  New verdict ⏱️ **INCONCLUSIVE** (exit 2), "not a pass, not a bug." Proved the
   branch fires by dropping the cap to 3s against the 51s fn (INCONCLUSIVE, exit 2),
   then confirmed a fast fn still returns a real verdict at 120s.
 
-## Week 2 — slice params (&[int], &mut [int], &Vec<int>)
+## Week 2, slice params (&[int], &mut [int], &Vec<int>)
 
 AI Rust takes slices constantly; v0 rejected them as ⏭. Added support: a slice
 param binds a symbolic `Vec<int>` and is passed by reference (`&v` / `&mut v`,
@@ -176,7 +175,7 @@ so by-ref args are distinguished from by-value. Measured (corpus_slice/):
 Regression: original Vec corpus verdicts unchanged (find_max→BUG, sum_vec→
 UNGUARDED, get_third→VERIFIED, divide→BUG, parse_number→⏭). No breakage.
 
-## Week 2 — human-readable counterexamples + unit tests
+## Week 2, human-readable counterexamples + unit tests
 
 BUG output used to print raw Kani tokens (`0ul`). Added `interpret_val()`:
 - usize tokens → "0 (usize → empty vector)" / "N (usize → vector of length N)"
@@ -184,38 +183,38 @@ BUG output used to print raw Kani tokens (`0ul`). Added `interpret_val()`:
 - min/max sentinels → "-2147483648 (i32::MIN)", "255 (u8::MAX)", etc.
 - everything else → number with the type suffix stripped ("5i32" → "5")
 
-Conservative on purpose — only annotates what it can identify unambiguously;
+Conservative on purpose, only annotates what it can identify unambiguously;
 `100i8` stays "100" (not a sentinel). Now `find_max` prints
-"reachable with input(s), in order: 0 (usize → empty vector)" — the tool says
-what the README used to hand-annotate. Added 3 unit tests (all green) — first
+"reachable with input(s), in order: 0 (usize → empty vector)", the tool says
+what the README used to hand-annotate. Added 3 unit tests (all green), first
 test coverage in the crate.
 
-## Week 2 — multi-collection params (already work; great demo case)
+## Week 2, multi-collection params (already work; great demo case)
 
-Tested two-collection signatures (corpus_multi/). They already work — map_input
+Tested two-collection signatures (corpus_multi/). They already work, map_input
 runs per-param, so N independent symbolic vecs/slices are generated:
 
 | fn | verdict | why |
 |---|---|---|
-| dot_zip(&[i32], &[i32]) | 🟡 UNGUARDED | zip stops at shorter slice — safe |
+| dot_zip(&[i32], &[i32]) | 🟡 UNGUARDED | zip stops at shorter slice, safe |
 | dot_index(Vec, Vec) | 🔴 BUG | b[i] over a.len() → OOB when a longer |
 | add_scalar(&[i32], i32) | 🟡 UNGUARDED | mixed slice+scalar params fine |
 
 dot_index is the standout demo: the counterexample reads
 "1 (usize → 1-element vector), -1, 0 (usize → empty vector)" = a=[-1], b=[].
-Two dot-products that look equivalent — zip is safe, index panics on length
-mismatch — and cargo test with equal-length inputs never catches it. Added to
+Two dot-products that look equivalent, zip is safe, index panics on length
+mismatch, and cargo test with equal-length inputs never catches it. Added to
 LAUNCH.md as the "two functions that look identical" hook.
 
-## Week 2 — property proving (--prove) + counterexample parser fix
+## Week 2, property proving (--prove) + counterexample parser fix
 
 Big capability jump: from panic-checker to property-verifier. New flag
 `--prove '<bool expr over result + inputs>'` turns the return value into a proof
 obligation via `kani::assert`. Runs in realistic bounds.
 
-  ✅ PROVEN   (exit 0) — property holds for all inputs in bounds
-  🔴 VIOLATED (exit 1) — property can be false (or fn panics first) + witness
-  ⏱️ INCONCLUSIVE (exit 2) — didn't finish in time
+  ✅ PROVEN   (exit 0), property holds for all inputs in bounds
+  🔴 VIOLATED (exit 1), property can be false (or fn panics first) + witness
+  ⏱️ INCONCLUSIVE (exit 2), didn't finish in time
 
 Measured:
   abs_val   --prove 'result >= 0'            → PROVEN
@@ -228,22 +227,22 @@ FIX found while testing: Kani emits one concrete_vals block PER failing check.
 counterexample() was concatenating tokens across all blocks → find_max prove
 showed a merged 3-token nonsense witness. Now captures only the first block.
 Verified the fix doesn't truncate legit multi-PARAM witnesses (dot_index still
-shows a=[-1], b=[] — 3 tokens from one block). build() now takes an optional
+shows a=[-1], b=[], 3 tokens from one block). build() now takes an optional
 postcondition; all call sites updated. Unit tests still green.
 
-## Week 2 — harden --prove: pure parser + regression tests + prove corpus
+## Week 2, harden --prove: pure parser + regression tests + prove corpus
 
 Extracted the concrete-playback parsing out of counterexample() into a pure
 `parse_playback(text) -> Option<(assertion, vals)>` so it's unit-testable without
 shelling out to Kani. Added 4 tests using REAL captured Kani output:
-- playback_keeps_only_first_witness_block — the find_max --prove bug (2 blocks →
+- playback_keeps_only_first_witness_block, the find_max --prove bug (2 blocks →
   must not merge to ["1ul","-1","0ul"]; expect ["1ul","-1"])
-- playback_keeps_all_params_in_one_block — dot_index (2 params, 1 block → keep all 3)
+- playback_keeps_all_params_in_one_block, dot_index (2 params, 1 block → keep all 3)
 - playback_captures_assertion_message, playback_none_when_no_block
 Suite now 7 tests, all green. corpus_prove/ + manifest.json make the README
 --prove examples reproducible.
 
-## Week 2 — batch mode (CI over a crate) + parallelism lesson
+## Week 2, batch mode (CI over a crate) + parallelism lesson
 
 `cargo-vouch f1.rs f2.rs ...` (2+ files) → parallel verify, summary table, exit 1
 if any BUG. Refactored the single-file verify into a Verdict enum + verify_one()
@@ -260,15 +259,15 @@ than sequential). A false verdict from over-parallelism is worse than being slow
 verify_one() takes a `slot` to namespace its temp dir so parallel workers (and
 same-named fns across files) never collide. Unit suite still 7 green.
 
-## Week 2 — CI workflows (operational floor + verification gate)
+## Week 2, CI workflows (operational floor + verification gate)
 
 Completed the CI story. Cleaned the crate first: cargo fmt + fixed a clippy
 to_string_in_format_args lint → fmt-clean, clippy -D warnings clean, 7 tests green.
 
 Two workflows:
-- .github/workflows/ci.yml — fast floor on every push/PR: fmt --check, clippy
+- .github/workflows/ci.yml, fast floor on every push/PR: fmt --check, clippy
   -D warnings, test, build (with rust-cache).
-- .github/workflows/verify.yml — the formal-verification gate: installs Kani,
+- .github/workflows/verify.yml, the formal-verification gate: installs Kani,
   installs cargo-vouch, runs `cargo-vouch verify/*.rs`. Manual + weekly cron (Kani
   install is minutes, too heavy for every push). Exits 1 on any BUG → fails job.
 
@@ -276,7 +275,7 @@ Seeded verify/ with the two provably-clean corpus fns (get_third, remove_last) s
 the repo's own gate is green (verified: 0 BUG, 2 VERIFIED, exit 0). README gained
 a copy-paste GitHub Actions section.
 
-## Week 2 — tuple params + build() unit tests
+## Week 2, tuple params + build() unit tests
 
 Added Type::Tuple support to map_input: a tuple of scalar ints binds one
 kani::any() per element with per-field realistic assumes (name.0, name.1, ...).
@@ -290,30 +289,30 @@ Tuple RETURNS already worked (return is discarded in default mode; bound as
 Added 4 build()/map_input() unit tests (tuple binding, slice by-ref, postcondition
 result binding, &str rejection). Suite now 11 green. fmt + clippy -D warnings clean.
 
-## Week 2 — v0.2.0 release prep
+## Week 2, v0.2.0 release prep
 
 Bumped 0.1.0 → 0.2.0, sharpened the crate description (now mentions --prove + batch).
 Wrote CHANGELOG.md documenting the release: --prove, batch mode, INCONCLUSIVE,
 slices, tuples, readable counterexamples, tests + CI, the counterexample parser fix.
 `cargo publish --dry-run` green (Packaged 6 files, 38.3KiB, verify-compiled clean).
 
-## Week 2 — --json machine-readable output
+## Week 2, --json machine-readable output
 
 Added `--json` for single-file and batch: emits {"name","verdict","checks",
 "witness"} objects (batch wraps in {"results":[...],"summary":{...}}). Hand-rolled
-JSON with a json_escape helper (quotes/backslash/control/unicode) — no serde dep.
+JSON with a json_escape helper (quotes/backslash/control/unicode), no serde dep.
 Progress lines suppressed under --json so stdout is pure JSON. Validated through
 python -m json.tool; witness uses the human-readable form ("0 (usize → empty
 vector)" → → escaped). 2 new unit tests (json_escape, verdict_json) → 13 green.
 
-## Week 2 — --help / --version (CLI hygiene)
+## Week 2, --help / --version (CLI hygiene)
 
 Added proper --help/-h (full usage: modes, verdicts, supported types, Kani install,
 docs link) and --version/-V (reads CARGO_PKG_VERSION). Bare invocation now prints
 help and exits 0 (standard convention) instead of a terse error. Expected of any
 published crate.
 
-## Week 2 — --bound / --unwind tuning flags
+## Week 2, --bound / --unwind tuning flags
 
 Made the two BMC depth knobs user-tunable: --bound N (max Vec/slice length,
 default 3) and --unwind N (loop unroll depth, default 5). Converted BOUND/UNWIND
@@ -322,7 +321,7 @@ defines the strict/realistic UNGUARDED split). Verified --emit reflects both in
 the harness (any_bounded_vec::<i32>(5), #[kani::unwind(8)]) and the verdict message
 reads "Vec≤5". Honest framing: VERIFIED is a proof only within the chosen bounds.
 
-## Week 2 — --selftest (trust guard against false-green)
+## Week 2, --selftest (trust guard against false-green)
 
 A verifier that silently passes everything (Kani missing/misconfigured, output
 format drift) is the worst failure mode. Added `cargo-vouch --selftest`: runs a
@@ -335,12 +334,12 @@ Regression check earlier confirmed the canonical corpus verdicts unchanged after
 this session's 9 features (find_max→BUG, sum_vec→UNGUARDED, get_third→VERIFIED,
 divide→BUG). Suite 13 green, fmt/clippy clean.
 
-## Week 2 — FIX: unwinding-assertion mislabeled as BUG (found by fresh corpus)
+## Week 2, FIX: unwinding-assertion mislabeled as BUG (found by fresh corpus)
 
 Generated a fresh 10-fn AI corpus (corpus_v2/, mixing slices/tuples/Vec/Option) to
-grow launch evidence — and it caught a real false-positive in cargo-vouch itself.
+grow launch evidence, and it caught a real false-positive in cargo-vouch itself.
 
-`factorial(n) = (1..=n).product()` was reported 🔴 BUG "panic reachable" — but the
+`factorial(n) = (1..=n).product()` was reported 🔴 BUG "panic reachable", but the
 failed check was `unwinding assertion loop 0`, which is NOT a panic. It means Kani
 couldn't unroll the loop within unwind=5 (n ranges to 1000). Reporting that as a BUG
 is precisely the false verdict this tool exists to prevent.
@@ -352,31 +351,31 @@ that is ONLY unwinding assertions ⇒ INCONCLUSIVE, not BUG/UNGUARDED. Verified:
 The --unwind knob now lets a user escalate an INCONCLUSIVE to a real verdict.
 
 Fresh-corpus cross-check (VERIFIED = safe-for-all-inputs): AI mislabeled 1/10 by the
-strict criterion (sum_slice: ".sum() handles overflow" — it doesn't → UNGUARDED). The
+strict criterion (sum_slice: ".sum() handles overflow", it doesn't → UNGUARDED). The
 durable story isn't the mislabel rate (GPT-4o now flags most overflows) but the
 severity split the AI can't make: factorial→BUG (overflow at ordinary n=13) vs
 abs→UNGUARDED (overflow only at i32::MIN). New type support (slices/tuples/Option)
 all verified correctly on unseen code.
 
-## Week 2 — FIX #2: Option overflow misreported as BUG (also found by corpus_v2)
+## Week 2, FIX #2: Option overflow misreported as BUG (also found by corpus_v2)
 
 Second false-verdict the fresh corpus surfaced. `increment_option = opt.map(|x| x+1)`
-was 🔴 BUG (witness Some(i32::MAX)) — but that's an EXTREME, so it should be 🟡
+was 🔴 BUG (witness Some(i32::MAX)), but that's an EXTREME, so it should be 🟡
 UNGUARDED. Cause: Option<int> params were NOT range-clamped in realistic mode (unlike
 scalars/Vecs), so the realistic run still explored i32::MAX and "failed".
 
 FIX: in realistic mode, clamp the Some(_) payload:
   if let Some(v) = opt { kani::assume(v >= -1000 && v <= 1000); }
 Result: increment_option → UNGUARDED (correct). Regression-checked that this does NOT
-hide real None-unwrap bugs — opt.unwrap() still → BUG "None value". to_positive still
+hide real None-unwrap bugs, opt.unwrap() still → BUG "None value". to_positive still
 VERIFIED.
 
 Authoritative corpus_v2 (post both fixes): 5 UNGUARDED, 4 VERIFIED, 1 INCONCLUSIVE,
 0 hard BUG. Every new type shape (slice/tuple/Option/Vec) verifies correctly on unseen
 AI code. The two fixes are the real story: cargo-vouch caught two of its own false
-verdicts under fresh input — the dual-mode severity discipline held up and got sharper.
+verdicts under fresh input, the dual-mode severity discipline held up and got sharper.
 
-## Week 2 — end-to-end integration tests + PID-namespaced temp dirs
+## Week 2, end-to-end integration tests + PID-namespaced temp dirs
 
 Added cli/tests/integration.rs: 6 tests that run the actual binary and assert
 verdict+exit code (BUG→1, VERIFIED→0, UNGUARDED→0, PROVEN/VIOLATED, INCONCLUSIVE→2,
@@ -388,29 +387,29 @@ Writing them exposed a real robustness gap: the single-file temp dir was
 both define `fn f` collided (cargo test runs tests in parallel → 3 failed). FIX:
 namespace the temp dir by process id too. All 6 e2e green; 15 unit tests green.
 
-## Week 2 — multi-function files (the real-world adoption gap)
+## Week 2, multi-function files (the real-world adoption gap)
 
 Biggest single limitation removed: build() only ever verified the FIRST fn in a file,
 so pointing cargo-vouch at a real source file silently checked one function. Now every
 top-level function is verified. run_kani already keyed results by fn name, so the core
-supported it — refactor: harness_for() (one fn) + build_all() (harness per supported fn,
+supported it, refactor: harness_for() (one fn) + build_all() (harness per supported fn,
 unsupported ones skipped but their body kept so callees resolve) + verify_file() →
 Vec<(name, verdict)>. classify() extracted for the per-fn dual-mode logic.
 
 single-file & batch both consume verify_file; batch records a row per function.
 --json unified to {"results":[...],"summary":{...}} for single AND batch (emit_json).
 Measured on a 4-fn file: add→UNGUARDED, first→BUG(witness [0]), identity→VERIFIED,
-parse(&str)→UNSUPPORTED — all four reported, exit 1 (bug present). 16 unit tests
+parse(&str)→UNSUPPORTED, all four reported, exit 1 (bug present). 16 unit tests
 (added build_all test), 6 e2e, fmt + clippy --all-targets clean.
 
-## Week 2 — directory arguments (cargo-vouch src/)
+## Week 2, directory arguments (cargo-vouch src/)
 
 A directory arg now recurses into every .rs under it, so `cargo-vouch src/` gates a whole
 crate without a shell glob (and globs don't recurse). collect_rs() walks sorted +
 deterministic, skips non-.rs. verify.yml simplified to `cargo-vouch verify/`. Unit test
 covers recursion/sort/.txt-skip. 17 unit tests, clippy --all-targets clean.
 
-## Week 2 — --fail-on rigor dial
+## Week 2, --fail-on rigor dial
 
 CI gate strictness is now configurable: --fail-on bug (default) | unguarded |
 inconclusive. Only BUG fails by default (back-compat); teams wanting zero unguarded
@@ -420,7 +419,7 @@ keeps its distinct exit 2 under the default. Backward-compat verified: factorial
 default still exit 2 (e2e green), UNGUARDED default still exit 0. Unit test covers
 all three levels. 18 unit + 6 e2e green, clippy --all-targets clean.
 
-## Week 2 — verified: cross-calling functions in one file
+## Week 2, verified: cross-calling functions in one file
 
 Confirmed the build_all "keep every fn body" design handles functions that call each
 other. corpus_multi/04_crosscall.rs: helper→UNGUARDED, caller (calls helper, has its
@@ -428,16 +427,15 @@ own v[0] bug)→BUG [0], safe_caller (calls double)→VERIFIED, double→VERIFIE
 verified independently with the others resolvable as callees. Refreshed the module
 doc header (--json shape, dir args, --fail-on).
 
-## Week 2 — dogfood on realistic code + per-file timeout scaling
+## Week 2, dogfood on realistic code + per-file timeout scaling
 
-Ran cargo-vouch on realistic utility modules (dogfood/: stats, pagination, geometry —
-14 fns). Findings recorded in RESULTS.md. Real win: page_count → 🔴 BUG (divide-by-zero
-when per_page==0, witness total=-1/per_page=0) — a genuinely shippable bug in plausible
+Ran cargo-vouch on realistic utility modules (dogfood/: stats, pagination, geometry, 14 fns). Findings recorded in RESULTS.md. Real win: page_count → 🔴 BUG (divide-by-zero
+when per_page==0, witness total=-1/per_page=0), a genuinely shippable bug in plausible
 code; clamp_page (defensive) → ✅ VERIFIED. Geometry all UNGUARDED (classic overflow).
 
 Dogfood exposed a real limitation: stats.rs (6 iterator fns) came back ALL INCONCLUSIVE.
 Cause: `.iter().max()/.min().unwrap()` is pathologically slow in Kani (~116s SOLO for one
-fn), and all a file's harnesses share ONE cargo-kani invocation + ONE 120s timeout — so a
+fn), and all a file's harnesses share ONE cargo-kani invocation + ONE 120s timeout, so a
 slow fn poisons the whole file, losing even fast fns' verdicts.
 
 FIX: scale the per-file timeout by supported-fn count (TIMEOUT_SECS * n, capped at
