@@ -67,6 +67,10 @@ cargo-aiv batch — 6 file(s), 3 workers, ≤120s/mode each
 2 BUG · 3 UNGUARDED · 1 VERIFIED · 0 other
 ```
 
+**Choose your gate's strictness** with `--fail-on`: `bug` (default — only reachable
+panics fail), `unguarded` (also fail on extreme-input overflows), or `inconclusive`
+(also fail anything that couldn't be proven). Exit 1 when the level is tripped.
+
 Concurrency is deliberately capped low (~cores/4, ≤3): Kani/CBMC is heavy and
 already multi-threaded, so running too many at once starves each solver past its
 timeout and yields false INCONCLUSIVE. Low-but-parallel is both correct and ~2×

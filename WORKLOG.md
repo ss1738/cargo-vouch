@@ -409,3 +409,13 @@ A directory arg now recurses into every .rs under it, so `cargo-aiv src/` gates 
 crate without a shell glob (and globs don't recurse). collect_rs() walks sorted +
 deterministic, skips non-.rs. verify.yml simplified to `cargo-aiv verify/`. Unit test
 covers recursion/sort/.txt-skip. 17 unit tests, clippy --all-targets clean.
+
+## Week 2 — --fail-on rigor dial
+
+CI gate strictness is now configurable: --fail-on bug (default) | unguarded |
+inconclusive. Only BUG fails by default (back-compat); teams wanting zero unguarded
+arithmetic or zero unproven fns can tighten. fails(verdict) reads an atomic level;
+exit-code logic in single-file + batch unified through it. Single lone INCONCLUSIVE
+keeps its distinct exit 2 under the default. Backward-compat verified: factorial
+default still exit 2 (e2e green), UNGUARDED default still exit 0. Unit test covers
+all three levels. 18 unit + 6 e2e green, clippy --all-targets clean.

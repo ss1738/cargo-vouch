@@ -24,7 +24,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU8, AtomicUsize, Ordering};
 
 // Bound (max Vec/slice length) and unwind (loop unroll depth) are user-tunable via
 // --bound / --unwind, set once in main() before any verification. RANGE stays const:
@@ -36,6 +36,19 @@ fn bound() -> usize {
 }
 fn unwind() -> u32 {
     UNWIND_A.load(Ordering::Relaxed)
+}
+
+// CI rigor dial (--fail-on): 0 = BUG only (default), 1 = + UNGUARDED, 2 = + INCONCLUSIVE.
+static FAIL_ON: AtomicU8 = AtomicU8::new(0);
+/// Does this verdict fail the gate at the current --fail-on level?
+fn fails(v: &Verdict) -> bool {
+    let level = FAIL_ON.load(Ordering::Relaxed);
+    match v {
+        Verdict::Bug(..) => true,
+        Verdict::Unguarded(_) => level >= 1,
+        Verdict::Inconclusive => level >= 2,
+        _ => false, // VERIFIED / UNSUPPORTED never fail
+    }
 }
 const RANGE: i64 = 1000;
 /// Per-mode wall-clock cap. Kani can run for minutes on adapter-heavy functions;
@@ -611,6 +624,23 @@ mod tests {
     }
 
     #[test]
+    fn fail_on_levels_gate_correctly() {
+        use super::{fails, Verdict, FAIL_ON};
+        use std::sync::atomic::Ordering;
+        let bug = Verdict::Bug(vec![], vec![]);
+        let ung = Verdict::Unguarded(vec![]);
+        let inc = Verdict::Inconclusive;
+        let ver = Verdict::Verified;
+        FAIL_ON.store(0, Ordering::Relaxed); // bug only (default)
+        assert!(fails(&bug) && !fails(&ung) && !fails(&inc) && !fails(&ver));
+        FAIL_ON.store(1, Ordering::Relaxed); // + unguarded
+        assert!(fails(&bug) && fails(&ung) && !fails(&inc) && !fails(&ver));
+        FAIL_ON.store(2, Ordering::Relaxed); // + inconclusive
+        assert!(fails(&bug) && fails(&ung) && fails(&inc) && !fails(&ver));
+        FAIL_ON.store(0, Ordering::Relaxed); // reset for other tests
+    }
+
+    #[test]
     fn unwinding_assertions_are_not_real_failures() {
         use super::real_failures;
         // a loop that overran the unwind bound is NOT a bug — filtered out
@@ -953,10 +983,11 @@ fn batch(files: &[String], json: bool) -> i32 {
             _ => other += 1,
         }
     }
+    let exit = i32::from(out.iter().any(|(_, _, v)| fails(v)));
     if json {
         let refs: Vec<(&str, &Verdict)> = out.iter().map(|(_, l, v)| (l.as_str(), v)).collect();
         emit_json(&refs);
-        return i32::from(bugs > 0);
+        return exit;
     }
     for (_, label, v) in &out {
         let detail = match v {
@@ -971,7 +1002,7 @@ fn batch(files: &[String], json: bool) -> i32 {
     println!(
         "\n{DIM}────{X}\n{R}{bugs} BUG{X} · {Y}{ung} UNGUARDED{X} · {G}{ver} VERIFIED{X} · {other} other"
     );
-    i32::from(bugs > 0)
+    exit
 }
 
 fn verdict_kind(v: &Verdict) -> &'static str {
@@ -1049,8 +1080,9 @@ USAGE:
     cargo-aiv --selftest               check Kani is wired correctly (trust guard)
 
 OPTIONS:
-    --bound N    max Vec/slice length to check (default 3)
-    --unwind N   loop unroll depth (default 5)
+    --bound N          max Vec/slice length to check (default 3)
+    --unwind N         loop unroll depth (default 5)
+    --fail-on <level>  which verdicts exit non-zero: bug (default) | unguarded | inconclusive
 
 VERDICTS:
     🔴 BUG          panic reachable on ordinary input (exit 1) — with a witness
@@ -1109,6 +1141,19 @@ Docs: https://github.com/ss1738/cargo-aiv
                 std::process::exit(2);
             }
         }
+    }
+    if let Some(i) = args.iter().position(|a| a == "--fail-on") {
+        let level = match args.get(i + 1).map(|s| s.as_str()) {
+            Some("bug") => 0,
+            Some("unguarded") => 1,
+            Some("inconclusive") => 2,
+            _ => {
+                eprintln!("--fail-on needs one of: bug | unguarded | inconclusive");
+                std::process::exit(2);
+            }
+        };
+        FAIL_ON.store(level, Ordering::Relaxed);
+        args.drain(i..=i + 1);
     }
     let raw: Vec<String> = args
         .iter()
@@ -1217,25 +1262,24 @@ Docs: https://github.com/ss1738/cargo-aiv
             n.to_string()
         }
     };
-    let bugs = results
-        .iter()
-        .filter(|(_, v)| matches!(v, Verdict::Bug(..)))
-        .count();
+    // exit 1 if any verdict fails the gate; else a lone INCONCLUSIVE keeps its
+    // distinct exit 2 (couldn't check ≠ verified).
+    let single_inconclusive = results.len() == 1 && matches!(results[0].1, Verdict::Inconclusive);
+    let exit = if results.iter().any(|(_, v)| fails(v)) {
+        1
+    } else if single_inconclusive {
+        2
+    } else {
+        0
+    };
     if json {
         let labels: Vec<(String, &Verdict)> = results.iter().map(|(n, v)| (label(n), v)).collect();
         let refs: Vec<(&str, &Verdict)> = labels.iter().map(|(l, v)| (l.as_str(), *v)).collect();
         emit_json(&refs);
-        std::process::exit(i32::from(bugs > 0));
+        std::process::exit(exit);
     }
-    let multi = results.len() > 1;
-    let mut code = 0;
     for (name, verdict) in &results {
-        let c = print_detailed(&label(name), verdict);
-        if c == 1 {
-            code = 1;
-        } else if c == 2 && !multi {
-            code = 2;
-        }
+        print_detailed(&label(name), verdict);
     }
-    std::process::exit(code);
+    std::process::exit(exit);
 }
