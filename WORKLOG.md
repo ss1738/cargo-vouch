@@ -427,3 +427,19 @@ other. corpus_multi/04_crosscall.rs: helper→UNGUARDED, caller (calls helper, h
 own v[0] bug)→BUG [0], safe_caller (calls double)→VERIFIED, double→VERIFIED. Each fn
 verified independently with the others resolvable as callees. Refreshed the module
 doc header (--json shape, dir args, --fail-on).
+
+## Week 2 — dogfood on realistic code + per-file timeout scaling
+
+Ran cargo-aiv on realistic utility modules (dogfood/: stats, pagination, geometry —
+14 fns). Findings recorded in RESULTS.md. Real win: page_count → 🔴 BUG (divide-by-zero
+when per_page==0, witness total=-1/per_page=0) — a genuinely shippable bug in plausible
+code; clamp_page (defensive) → ✅ VERIFIED. Geometry all UNGUARDED (classic overflow).
+
+Dogfood exposed a real limitation: stats.rs (6 iterator fns) came back ALL INCONCLUSIVE.
+Cause: `.iter().max()/.min().unwrap()` is pathologically slow in Kani (~116s SOLO for one
+fn), and all a file's harnesses share ONE cargo-kani invocation + ONE 120s timeout — so a
+slow fn poisons the whole file, losing even fast fns' verdicts.
+
+FIX: scale the per-file timeout by supported-fn count (TIMEOUT_SECS * n, capped at
+TIMEOUT_MAX_SECS=600) so a multi-fn file isn't unfairly starved. kani_output/run_kani now
+take a timeout param; single-fn/--prove keep the base 120s. 18 unit + build/clippy green.

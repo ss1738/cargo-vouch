@@ -55,6 +55,8 @@ const RANGE: i64 = 1000;
 /// Per-mode wall-clock cap. Kani can run for minutes on adapter-heavy functions;
 /// past this we report ⏱️ INCONCLUSIVE rather than hang a CI job forever.
 const TIMEOUT_SECS: u64 = 120;
+/// Upper bound on a whole-file run's budget (per mode), so a big file stays bounded.
+const TIMEOUT_MAX_SECS: u64 = 600;
 const SCALARS: &[&str] = &[
     "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "bool",
 ];
@@ -330,7 +332,7 @@ fn build_all(src: &str, realistic: bool) -> Result<(FnStatuses, String), String>
 /// Run `cargo kani` in `dir`, draining stdout+stderr on threads (so a full pipe
 /// buffer can't deadlock the child) and killing it past `TIMEOUT_SECS`.
 /// Returns None if the run timed out or couldn't start.
-fn kani_output(dir: &PathBuf) -> Option<String> {
+fn kani_output(dir: &PathBuf, timeout_secs: u64) -> Option<String> {
     let mut child = Command::new("cargo")
         .arg("kani")
         .current_dir(dir)
@@ -355,7 +357,7 @@ fn kani_output(dir: &PathBuf) -> Option<String> {
         match child.try_wait() {
             Ok(Some(_)) => break,
             Ok(None) => {
-                if start.elapsed() > Duration::from_secs(TIMEOUT_SECS) {
+                if start.elapsed() > Duration::from_secs(timeout_secs) {
                     let _ = child.kill();
                     let _ = child.wait();
                     return None; // timed out — pipes hit EOF, reader threads unblock
@@ -368,7 +370,12 @@ fn kani_output(dir: &PathBuf) -> Option<String> {
     Some(ho.join().unwrap_or_default() + &he.join().unwrap_or_default())
 }
 
-fn run_kani(dir: &PathBuf, name: &str, lib: &str) -> Option<BTreeMap<String, (bool, Vec<String>)>> {
+fn run_kani(
+    dir: &PathBuf,
+    name: &str,
+    lib: &str,
+    timeout_secs: u64,
+) -> Option<BTreeMap<String, (bool, Vec<String>)>> {
     fs::create_dir_all(dir.join("src")).ok();
     fs::write(
         dir.join("Cargo.toml"),
@@ -376,7 +383,7 @@ fn run_kani(dir: &PathBuf, name: &str, lib: &str) -> Option<BTreeMap<String, (bo
     )
     .ok();
     fs::write(dir.join("src/lib.rs"), lib).ok();
-    let text = kani_output(dir)?;
+    let text = kani_output(dir, timeout_secs)?;
     let mut res = BTreeMap::new();
     let mut cur = String::new();
     for ln in text.lines() {
@@ -838,9 +845,15 @@ fn verify_file(src: &str, slot: usize) -> Vec<(String, Verdict)> {
     let real_lib = build_all(src, true).unwrap().1;
     let base = std::env::temp_dir().join(format!("cargo-aiv-{}-multi-{slot}", std::process::id()));
     let realistic_dir = base.join("realistic");
+    // All harnesses share one Kani invocation, so a file with N functions needs a
+    // bigger budget than a single one — else one slow function (Kani is slow on some
+    // iterator patterns) times out the whole file and every verdict is lost. Scale by
+    // the supported-fn count, capped so CI stays bounded.
+    let n = statuses.iter().filter(|(_, s)| s.is_none()).count().max(1) as u64;
+    let timeout = (TIMEOUT_SECS * n).min(TIMEOUT_MAX_SECS);
     let (strict, real) = match (
-        run_kani(&base.join("strict"), "multi", &strict_lib),
-        run_kani(&realistic_dir, "multi", &real_lib),
+        run_kani(&base.join("strict"), "multi", &strict_lib, timeout),
+        run_kani(&realistic_dir, "multi", &real_lib, timeout),
     ) {
         (Some(s), Some(r)) => (s, r),
         // whole-file run timed out: supported fns are inconclusive, unsupported stay so
@@ -1218,7 +1231,7 @@ Docs: https://github.com/ss1738/cargo-aiv
         );
         let dir =
             std::env::temp_dir().join(format!("cargo-aiv-{}-{name}-prove", std::process::id()));
-        let res = match run_kani(&dir, &name, &lib) {
+        let res = match run_kani(&dir, &name, &lib, TIMEOUT_SECS) {
             Some(r) => r,
             None => {
                 println!(
