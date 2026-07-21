@@ -163,12 +163,20 @@ cargo-aiv path/to/function.rs
 **Supported:** safe Rust, every free function in a file (methods/`self` skipped),
 parameters of scalar ints (`i8..u64`, `bool`),
 `Vec<int>`, `Option<int>`, int **slices** (`&[int]`, `&mut [int]`, `&Vec<int>` — mutation
-through `&mut` is verified too), and **tuples of scalar ints** (`(i32, i32)`, …) as params;
+through `&mut` is verified too), **`&str`/`String`** (bound as a symbolic ASCII string,
+length ≤ bound), and **tuples of scalar ints** (`(i32, i32)`, …) as params;
 tuple returns work in both default and `--prove` mode (`result.0`, `result.1`). Property:
 **panic-freedom + integer overflow**, bounded (Vec ≤ 3, loops unwound ≤ 5). **Idiomatic iterator chains verify fine** — `.iter().map().filter()
 .collect()`, `.fold()`, `.scan()`, `.enumerate()`, `.max_by_key()` all lower into the bounded
 model; they don't path-explode, though heavy adapter chains can take ~30–50s. Past 120s/mode
 the tool reports ⏱️ INCONCLUSIVE instead of hanging.
+
+**On strings, honestly:** `&str`/`String` catch the classic string panics — `.chars().next()
+.unwrap()` / `.parse().unwrap()` on empty or malformed input — with the empty-string witness,
+at a low bound (`--bound 1`, ~30s). But Unicode-heavy operations (`.to_uppercase()`,
+`.split()`) are **expensive under bounded model checking**: at the default bound they can blow
+past the 120s/mode timeout and land ⏱️ INCONCLUSIVE rather than ✅. Reach for string
+verification on panic-prone parsing/indexing code, not on heavy text transformation.
 
 **Tuning the rigor:** `--bound N` sets the max Vec/slice length checked (default 3),
 `--unwind N` the loop-unroll depth (default 5). Higher = more coverage, slower. A
