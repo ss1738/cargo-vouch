@@ -71,6 +71,65 @@ fn is_string_type(ty: &syn::Type) -> bool {
     matches!(path_head(ty), Some((b, a)) if b == "String" && a.is_empty())
 }
 
+/// True if this param binds a symbolic `Vec`/slice (`Vec<_>`, `&[_]`, `&mut [_]`,
+/// `&Vec<_>`) — its symbolic length shows up in the witness as a `usize` token.
+fn is_vec_type(ty: &syn::Type) -> bool {
+    if matches!(path_head(ty), Some((b, _)) if b == "Vec") {
+        return true;
+    }
+    if let syn::Type::Reference(r) = ty {
+        if matches!(&*r.elem, syn::Type::Slice(_)) {
+            return true;
+        }
+        if matches!(path_head(&r.elem), Some((b, _)) if b == "Vec") {
+            return true;
+        }
+    }
+    false
+}
+
+/// How to read a `usize` witness token: a symbolic length can be a `Vec`/slice
+/// length or a string length, and the raw token can't tell them apart. We resolve
+/// it from the function's param types instead.
+#[derive(Clone, Copy)]
+enum LenHint {
+    Vector,    // only Vec/slice collections → "empty vector"
+    Str,       // only strings → "empty string"
+    Ambiguous, // both present → neutral "empty collection" (can't disambiguate positionally)
+}
+
+/// Pick the witness length-noun for a function from its params.
+fn len_hint_for(func: &syn::ItemFn) -> LenHint {
+    let (mut has_vec, mut has_str) = (false, false);
+    for arg in &func.sig.inputs {
+        if let syn::FnArg::Typed(pt) = arg {
+            if is_string_type(&pt.ty) {
+                has_str = true;
+            } else if is_vec_type(&pt.ty) {
+                has_vec = true;
+            }
+        }
+    }
+    match (has_str, has_vec) {
+        (true, false) => LenHint::Str,
+        (true, true) => LenHint::Ambiguous,
+        _ => LenHint::Vector,
+    }
+}
+
+/// Per-function length-noun hints for a whole source file (name → hint).
+fn hints_for_file(src: &str) -> BTreeMap<String, LenHint> {
+    let mut m = BTreeMap::new();
+    if let Ok(file) = syn::parse_file(src) {
+        for it in &file.items {
+            if let syn::Item::Fn(f) = it {
+                m.insert(f.sig.ident.to_string(), len_hint_for(f));
+            }
+        }
+    }
+    m
+}
+
 // CI rigor dial (--fail-on): 0 = BUG only (default), 1 = + UNGUARDED, 2 = + INCONCLUSIVE.
 static FAIL_ON: AtomicU8 = AtomicU8::new(0);
 /// Does this verdict fail the gate at the current --fail-on level?
@@ -528,7 +587,12 @@ fn parse_playback(text: &str) -> Option<(String, Vec<String>)> {
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
-    use super::{build, interpret_val, map_input, parse_playback};
+    use super::{build, interpret_val_ctx, len_hint_for, map_input, parse_playback, LenHint};
+
+    /// Test alias: interpret a token with the default (Vector) length-noun.
+    fn interpret_val(tok: &str) -> String {
+        interpret_val_ctx(tok, LenHint::Vector)
+    }
 
     #[test]
     fn tuple_param_binds_one_any_per_element() {
@@ -764,6 +828,49 @@ mod tests {
         assert_eq!(interpret_val("3ul"), "3 (usize → vector of length 3)");
     }
     #[test]
+    fn string_hint_renders_string_noun_not_vector() {
+        // The exact gap this fixes: a usize length in a string function's witness
+        // must read "string", not "vector".
+        assert_eq!(
+            interpret_val_ctx("0ul", LenHint::Str),
+            "0 (usize → empty string)"
+        );
+        assert_eq!(
+            interpret_val_ctx("1ul", LenHint::Str),
+            "1 (usize → 1-char string)"
+        );
+        // Vector hint keeps the original noun (unchanged behavior / RESULTS.md).
+        assert_eq!(interpret_val_ctx("0ul", LenHint::Vector), "0 (usize → empty vector)");
+        assert_eq!(interpret_val("0ul"), "0 (usize → empty vector)"); // default = Vector
+        // A function with both a string and a vec can't be disambiguated → neutral.
+        assert_eq!(
+            interpret_val_ctx("0ul", LenHint::Ambiguous),
+            "0 (usize → empty collection)"
+        );
+        // Non-usize tokens are unaffected by the hint (sentinels still name themselves).
+        assert_eq!(interpret_val_ctx("255u8", LenHint::Str), "255 (u8::MAX)");
+    }
+
+    #[test]
+    fn len_hint_reads_param_types() {
+        let str_only: syn::ItemFn = syn::parse_str("fn f(s: &str) -> usize { 0 }").unwrap();
+        assert!(matches!(len_hint_for(&str_only), LenHint::Str));
+        let string_owned: syn::ItemFn =
+            syn::parse_str("fn f(s: String) -> usize { 0 }").unwrap();
+        assert!(matches!(len_hint_for(&string_owned), LenHint::Str));
+        let vec_only: syn::ItemFn = syn::parse_str("fn f(v: Vec<i32>) -> i32 { 0 }").unwrap();
+        assert!(matches!(len_hint_for(&vec_only), LenHint::Vector));
+        let slice_only: syn::ItemFn = syn::parse_str("fn f(v: &[i32]) -> i32 { 0 }").unwrap();
+        assert!(matches!(len_hint_for(&slice_only), LenHint::Vector));
+        let both: syn::ItemFn =
+            syn::parse_str("fn f(s: String, v: &[i32]) -> i32 { 0 }").unwrap();
+        assert!(matches!(len_hint_for(&both), LenHint::Ambiguous));
+        // No collections at all → Vector default (no usize tokens will appear anyway).
+        let scalars: syn::ItemFn = syn::parse_str("fn f(a: i32, b: u8) -> i32 { 0 }").unwrap();
+        assert!(matches!(len_hint_for(&scalars), LenHint::Vector));
+    }
+
+    #[test]
     fn names_overflow_sentinels() {
         assert_eq!(interpret_val("-2147483648i32"), "-2147483648 (i32::MIN)");
         assert_eq!(interpret_val("2147483647i32"), "2147483647 (i32::MAX)");
@@ -783,9 +890,10 @@ mod tests {
 
 /// Turn a raw Kani concrete value token (`"0ul"`, `"-2147483648i32"`, `"true"`)
 /// into something a human reads at a glance. Conservative: only annotates values
-/// it can identify unambiguously (usize length, min/max sentinels); otherwise
-/// strips the type suffix and passes the number through.
-fn interpret_val(tok: &str) -> String {
+/// it can identify unambiguously (min/max sentinels, and — via `hint` — a `usize`
+/// collection length as vector vs string); otherwise strips the type suffix and
+/// passes the number through.
+fn interpret_val_ctx(tok: &str, hint: LenHint) -> String {
     let t = tok.trim();
     if t == "true" || t == "false" {
         return t.to_string();
@@ -796,12 +904,23 @@ fn interpret_val(tok: &str) -> String {
         Some(i) => (&t[..i], &t[i..]),
         None => (t, ""),
     };
-    // usize only ever appears as a symbolic Vec/slice length in our harnesses
+    // A usize token is a symbolic collection length — Vec/slice or string, per hint.
     if suffix == "ul" || suffix == "usize" {
-        return match core {
-            "0" => "0 (usize → empty vector)".to_string(),
-            "1" => "1 (usize → 1-element vector)".to_string(),
-            n => format!("{n} (usize → vector of length {n})"),
+        return match hint {
+            LenHint::Str => match core {
+                "0" => "0 (usize → empty string)".to_string(),
+                "1" => "1 (usize → 1-char string)".to_string(),
+                n => format!("{n} (usize → string of length {n})"),
+            },
+            LenHint::Ambiguous => match core {
+                "0" => "0 (usize → empty collection)".to_string(),
+                n => format!("{n} (usize → length {n})"),
+            },
+            LenHint::Vector => match core {
+                "0" => "0 (usize → empty vector)".to_string(),
+                "1" => "1 (usize → 1-element vector)".to_string(),
+                n => format!("{n} (usize → vector of length {n})"),
+            },
         };
     }
     // name overflow sentinels (min/max for the signed/unsigned width)
@@ -827,7 +946,7 @@ fn interpret_val(tok: &str) -> String {
 
 enum Verdict {
     Verified,
-    Bug(Vec<String>, Vec<String>), // failed checks, counterexample value tokens
+    Bug(Vec<String>, Vec<String>), // failed checks, human-readable witness values
     Unguarded(Vec<String>),        // overflow only at extremes
     Inconclusive,
     Unsupported(String),
@@ -853,11 +972,8 @@ fn json_escape(s: &str) -> String {
 fn verdict_json(label: &str, v: &Verdict) -> String {
     let (kind, checks, witness): (&str, Vec<String>, Vec<String>) = match v {
         Verdict::Verified => ("VERIFIED", vec![], vec![]),
-        Verdict::Bug(c, w) => (
-            "BUG",
-            c.clone(),
-            w.iter().map(|x| interpret_val(x)).collect(),
-        ),
+        // Witness values are already human-readable (interpreted in `classify`).
+        Verdict::Bug(c, w) => ("BUG", c.clone(), w.clone()),
         Verdict::Unguarded(c) => ("UNGUARDED", c.clone(), vec![]),
         Verdict::Inconclusive => ("INCONCLUSIVE", vec![], vec![]),
         Verdict::Unsupported(e) => ("UNSUPPORTED", vec![e.clone()], vec![]),
@@ -921,7 +1037,14 @@ fn real_failures(checks: &[String]) -> Vec<String> {
 type KaniMap = BTreeMap<String, (bool, Vec<String>)>;
 
 /// Dual-mode classify for one function from its strict+realistic Kani results.
-fn classify(name: &str, realistic_dir: &PathBuf, strict: &KaniMap, real: &KaniMap) -> Verdict {
+/// `hint` resolves `usize` witness tokens to the right noun (vector vs string).
+fn classify(
+    name: &str,
+    realistic_dir: &PathBuf,
+    strict: &KaniMap,
+    real: &KaniMap,
+    hint: LenHint,
+) -> Verdict {
     let s = strict.get(name).cloned().unwrap_or((false, vec![]));
     let r = real.get(name).cloned().unwrap_or((false, vec![]));
     let s_real = real_failures(&s.1);
@@ -932,8 +1055,9 @@ fn classify(name: &str, realistic_dir: &PathBuf, strict: &KaniMap, real: &KaniMa
         // strict failed only on unwinding assertions — couldn't fully check the loop
         Verdict::Inconclusive
     } else if !r_real.is_empty() {
+        // Interpret the witness NOW, while we know the param types via `hint`.
         let vals = counterexample(realistic_dir, name)
-            .map(|(_, v)| v)
+            .map(|(_, v)| v.iter().map(|t| interpret_val_ctx(t, hint)).collect())
             .unwrap_or_default();
         Verdict::Bug(r_real, vals)
     } else {
@@ -974,12 +1098,14 @@ fn verify_file(src: &str, slot: usize) -> Vec<(String, Verdict)> {
                 .collect()
         }
     };
+    let hints = hints_for_file(src);
     statuses
         .into_iter()
         .map(|(name, st)| match st {
             Some(e) => (name, Verdict::Unsupported(e)),
             None => {
-                let v = classify(&name, &realistic_dir, &strict, &real);
+                let hint = hints.get(&name).copied().unwrap_or(LenHint::Vector);
+                let v = classify(&name, &realistic_dir, &strict, &real, hint);
                 (name, v)
             }
         })
@@ -1013,10 +1139,10 @@ fn print_detailed(name: &str, v: &Verdict) -> i32 {
                 println!("     {R}• {c}{X}");
             }
             if !vals.is_empty() {
-                let pretty: Vec<String> = vals.iter().map(|v| interpret_val(v)).collect();
+                // vals are already human-readable (interpreted in `classify`).
                 println!(
                     "     {DIM}reachable with input(s), in order: {}{X}",
-                    pretty.join(", ")
+                    vals.join(", ")
                 );
             }
         }
@@ -1113,8 +1239,8 @@ fn batch(files: &[String], json: bool) -> i32 {
     for (_, label, v) in &out {
         let detail = match v {
             Verdict::Bug(_, vals) if !vals.is_empty() => {
-                let p: Vec<String> = vals.iter().map(|x| interpret_val(x)).collect();
-                format!("  {DIM}← {}{X}", p.join(", "))
+                // vals are already human-readable (interpreted in `classify`).
+                format!("  {DIM}← {}{X}", vals.join(", "))
             }
             _ => String::new(),
         };
@@ -1391,7 +1517,11 @@ Docs: https://github.com/ss1738/cargo-aiv
         }
         if let Some((_a, vals)) = counterexample(&dir, &name) {
             if !vals.is_empty() {
-                let pretty: Vec<String> = vals.iter().map(|v| interpret_val(v)).collect();
+                let hint = hints_for_file(&src)
+                    .get(&name)
+                    .copied()
+                    .unwrap_or(LenHint::Vector);
+                let pretty: Vec<String> = vals.iter().map(|v| interpret_val_ctx(v, hint)).collect();
                 println!(
                     "     {DIM}counterexample input(s), in order: {}{X}",
                     pretty.join(", ")

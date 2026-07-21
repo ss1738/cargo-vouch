@@ -181,8 +181,8 @@ default 2). That's what makes a string bug resolve to 🔴/✅ instead of ⏱️
 the box. Length ≤ 1 still covers the empty-string case, where nearly every string panic lives.
 Raise `--str-bound`/`--str-unwind` for more coverage at higher cost. Heavy text transforms
 (`.to_uppercase()`, multi-`.split()`) can still time out to ⏱️ INCONCLUSIVE — never a false ✅.
-*Known cosmetic gap:* a string witness is printed in the `Vec` idiom (e.g. "1-element
-vector") — the reproducing input is right, the noun is not yet string-aware.
+The witness names the string length correctly ("empty string", "1-char string"); individual
+character bytes are still shown as their numeric code (e.g. `43` for `'+'`).
 
 **Tuning the rigor:** `--bound N` sets the max Vec/slice length checked (default 3),
 `--unwind N` the loop-unroll depth (default 5). Higher = more coverage, slower. A
