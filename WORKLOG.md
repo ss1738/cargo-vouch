@@ -402,3 +402,10 @@ single-file & batch both consume verify_file; batch records a row per function.
 Measured on a 4-fn file: add→UNGUARDED, first→BUG(witness [0]), identity→VERIFIED,
 parse(&str)→UNSUPPORTED — all four reported, exit 1 (bug present). 16 unit tests
 (added build_all test), 6 e2e, fmt + clippy --all-targets clean.
+
+## Week 2 — directory arguments (cargo-aiv src/)
+
+A directory arg now recurses into every .rs under it, so `cargo-aiv src/` gates a whole
+crate without a shell glob (and globs don't recurse). collect_rs() walks sorted +
+deterministic, skips non-.rs. verify.yml simplified to `cargo-aiv verify/`. Unit test
+covers recursion/sort/.txt-skip. 17 unit tests, clippy --all-targets clean.

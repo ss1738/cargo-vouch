@@ -234,6 +234,22 @@ fn harness_for(
     ))
 }
 
+/// Recursively collect `.rs` files under `dir` in a deterministic (sorted) order.
+fn collect_rs(dir: &std::path::Path, out: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    paths.sort();
+    for p in paths {
+        if p.is_dir() {
+            collect_rs(&p, out);
+        } else if p.extension().is_some_and(|e| e == "rs") {
+            out.push(p.to_string_lossy().into_owned());
+        }
+    }
+}
+
 fn first_fn(file: &syn::File) -> Option<&syn::ItemFn> {
     file.items.iter().find_map(|it| {
         if let syn::Item::Fn(f) = it {
@@ -470,6 +486,33 @@ mod tests {
         // realistic: clamp Some(_) so an extreme-only overflow reads as UNGUARDED, not BUG
         let (_, real) = build("fn f(o: Option<i32>) -> i32 { 0 }", true, None).unwrap();
         assert!(real.contains("if let Some(v) = o { kani::assume(v >= -1000 && v <= 1000); }"));
+    }
+
+    #[test]
+    fn collect_rs_finds_rs_recursively_sorted() {
+        use super::collect_rs;
+        use std::fs;
+        let root = std::env::temp_dir().join("aiv-collect-test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::write(root.join("b.rs"), "").unwrap();
+        fs::write(root.join("a.rs"), "").unwrap();
+        fs::write(root.join("note.txt"), "").unwrap(); // ignored
+        fs::write(root.join("sub").join("c.rs"), "").unwrap();
+        let mut out = Vec::new();
+        collect_rs(&root, &mut out);
+        let names: Vec<String> = out
+            .iter()
+            .map(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, vec!["a.rs", "b.rs", "c.rs"]); // sorted, recursive, .txt skipped
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -1067,13 +1110,28 @@ Docs: https://github.com/ss1738/cargo-aiv
             }
         }
     }
-    let files: Vec<String> = args
+    let raw: Vec<String> = args
         .iter()
         .filter(|a| !a.starts_with("--"))
         .cloned()
         .collect();
+    if raw.is_empty() {
+        eprintln!("usage: cargo-aiv [--emit] [--prove '<expr>'] <file.rs | dir>...");
+        std::process::exit(2);
+    }
+    // A directory argument expands to every .rs file under it (recursive) — so
+    // `cargo-aiv src/` verifies a whole crate without a shell glob.
+    let mut files = Vec::new();
+    for a in &raw {
+        let p = std::path::Path::new(a);
+        if p.is_dir() {
+            collect_rs(p, &mut files);
+        } else {
+            files.push(a.clone());
+        }
+    }
     if files.is_empty() {
-        eprintln!("usage: cargo-aiv [--emit] [--prove '<expr>'] <file.rs>...");
+        eprintln!("cargo-aiv: no .rs files found in {}", raw.join(", "));
         std::process::exit(2);
     }
 
