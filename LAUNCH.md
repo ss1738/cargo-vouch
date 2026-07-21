@@ -1,81 +1,66 @@
-# The Panic Log: I asked an AI for 12 Rust functions, then *proved* how many were actually correct
+# I asked GPT-4o for 12 Rust functions and checked how many were actually correct
 
-*(draft launch post — HN / r/rust / blog. All numbers are real, reproducible from the repo.)*
+*(draft launch post for Show HN / r/rust / LinkedIn. Numbers are real and reproducible from the repo. Rewrite in your own voice before posting.)*
 
----
+I write a fair amount of Rust with an LLM these days. `cargo test` only checks the cases I remember to write, so I wanted something that checks a function against every input, not a sample. I built a small tool, cargo-vouch. It generates a Kani proof harness for each function in a file automatically and runs bounded model checking, then tells you whether the function can panic or overflow.
 
-AI writes a lot of our code now. We check it with `cargo test` — which only tests the cases
-we thought of. So I ran an experiment: I asked GPT-4o for 12 small Rust utility functions,
-**and asked it to label each one `buggy` or `correct` itself.** Then I formally verified all
-of them with bounded model checking (Kani) — not testing a sample, *proving* the property for
-every input in bounds.
+To try it out I asked GPT-4o for 12 small utility functions and told it to label each one buggy or correct. Then I ran cargo-vouch on all of them.
 
-The AI got its own code wrong **4 out of 11 times.**
+It got its own code wrong 4 times out of 11.
 
 ## The results
 
-| Function | AI said | Formal verdict | |
+| Function | GPT-4o said | Verdict | |
 |---|---|---|---|
-| `sum_vec` | correct | 🟡 overflows | **AI wrong** |
-| `increment_all` | correct | 🟡 overflows | **AI wrong** |
-| `square_sum` | correct | 🟡 overflows | **AI wrong** |
-| `prepend_zero` | buggy | ✅ verified safe | **AI wrong** (false alarm) |
-| `find_max` | buggy | 🔴 panics (empty vec) | ✓ |
-| `divide` | buggy | 🔴 divide-by-zero | ✓ |
-| `double_first` | buggy | 🔴 panics (empty vec) | ✓ |
-| `subtract_min` | buggy | 🔴 panics (empty vec) | ✓ |
-| `average` | buggy | 🔴 NaN on empty | ✓ |
-| `get_third` | correct | ✅ verified safe | ✓ |
-| `remove_last` | correct | ✅ verified safe | ✓ |
+| `sum_vec` | correct | overflows | GPT wrong |
+| `increment_all` | correct | overflows | GPT wrong |
+| `square_sum` | correct | overflows | GPT wrong |
+| `prepend_zero` | buggy | verified safe | GPT wrong (false alarm) |
+| `find_max` | buggy | panics (empty vec) | ok |
+| `divide` | buggy | divide-by-zero | ok |
+| `double_first` | buggy | panics (empty vec) | ok |
+| `subtract_min` | buggy | panics (empty vec) | ok |
+| `average` | buggy | NaN on empty | ok |
+| `get_third` | correct | verified safe | ok |
+| `remove_last` | correct | verified safe | ok |
 
-(A 12th, `parse_number(s: &str)`, was outside the tool's scope and skipped — not answered wrongly.)
+(The 12th took a `&str` and was out of scope, so it was skipped rather than answered wrong.)
 
-## Three things this shows
+Three of the ones GPT called "correct" overflow. `sum_vec` is just `numbers.iter().sum()`. It passes `cargo test`. GPT said it was correct. It overflows on `[i32::MAX, 1]`. Same story for `increment_all` and `square_sum`. A test suite that passes normal inputs never hits that case.
 
-**1. The AI called broken code "correct" — three times.** `sum_vec` is just
-`numbers.iter().sum()`. It passes `cargo test`. GPT said it was correct. But `[i32::MAX, 1]`
-overflows it. Same for `increment_all` and `square_sum`. **A test suite would never catch
-this. A proof does, instantly.**
+It also called a correct function buggy. `prepend_zero` is fine; the model's own risk guess was just wrong. So grading the model with the model doesn't work. You need something that isn't another LLM.
 
-**2. The AI called *correct* code "buggy" too.** `prepend_zero` is fine — the AI's own
-risk-assessment was a false alarm. So you can't trust the model to grade the model; you need
-an oracle that isn't another LLM.
+One thing I care about: not every overflow is worth the same alarm. Those three only overflow at `i32::MAX/MIN`, which you would never actually pass to a sum. cargo-vouch marks those UNGUARDED (add a guard) instead of BUG, so it isn't screaming about adversarial inputs. The genuine bugs, an empty vector hitting `.unwrap()` or a zero divisor, get flagged as reachable on ordinary input, with the exact value that triggers them.
 
-**3. Not all "bugs" are equal — and a good tool says so.** Those three overflows only happen
-at `i32::MAX/MIN`. That's real, but adversarial — you'd never pass `i32::MAX` to a sum. So the
-tool **downgrades them to 🟡 UNGUARDED ("add a guard"), not 🔴 BUG.** The genuine 🔴 bugs — an
-empty vector hitting `.unwrap()`, a zero divisor — get flagged as reachable on ordinary input,
-*with the exact triggering value.* The difference between crying wolf and being trusted is
-this distinction, and it's the whole game.
+## I also ran it on ordinary utility code
 
-## It's not just AI code — I pointed it at ordinary utility modules
-
-To check it wasn't a party trick on cherry-picked functions, I wrote three plain modules of
-the kind every project has — stats, pagination, geometry (14 functions) — and ran the whole
-directory. It found **five reachable panics `cargo test` would have shipped:**
+To check it wasn't a trick that only works on cherry-picked functions, I wrote three plain modules of the kind most projects have (stats, pagination, geometry, 14 functions total) and ran the whole directory. It found five reachable panics that `cargo test` would have shipped:
 
 ```rust
 fn page_count(total: i32, per_page: i32) -> i32 { (total + per_page - 1) / per_page }
-//                                        🔴 BUG: divide-by-zero when per_page == 0
+//   divide-by-zero when per_page == 0
 fn mean(xs: &[i32]) -> i32 { xs.iter().sum::<i32>() / xs.len() as i32 }
-//                          🔴 BUG: divide-by-zero on an empty slice
+//   divide-by-zero on an empty slice
 fn maximum(xs: &[i32]) -> i32 { *xs.iter().max().unwrap() }
-//                             🔴 BUG: .unwrap() on None for an empty slice
+//   .unwrap() on None for an empty slice
 ```
 
-Every one is an *empty-input* or *zero-divisor* panic — the exact class that survives a test
-suite because tests pass non-empty, sensible inputs. The overflow-only functions were flagged
-🟡 UNGUARDED (not false BUGs), and the one function written defensively (`clamp_page`) was
-*proven* ✅ safe. Full run + timings in [`RESULTS.md`](RESULTS.md), every number labelled
-`[MEASURED]` — including the honest part: `.max()/.min()` proofs are slow (~116s), and the
-tool says ⏱️ INCONCLUSIVE rather than fake a ✅.
+Every one is an empty-input or zero-divisor panic, which is the class of bug that survives a test suite because tests pass non-empty, sensible inputs. The overflow-only functions came back UNGUARDED, and the one function I wrote defensively verified as safe. Full run with timings is in RESULTS.md, and every verdict there was actually run under Kani, none inferred.
+
+## Where it does not work (worth knowing before you install)
+
+cargo-vouch is narrow on purpose. It works when the bug lives in the arithmetic, an index, or an `.unwrap()`. It does not work on functions with data-dependent loops, because bounded model checking runs out of unwinding depth. I pulled two random crates off crates.io (roman and levenshtein) and it returned INCONCLUSIVE on all 6 of their functions, because those functions parse and iterate. The README says this up front. Point it at loop-light code, not at your parser.
+
+It is also a layer on top of [Kani](https://github.com/model-checking/kani), which does the actual verification. The part I built is the zero-annotation harness generation and the BUG/UNGUARDED/VERIFIED/INCONCLUSIVE classifier that will not report a pass it cannot back up. There is a `--selftest` that runs a known-bug and a known-safe function and refuses to trust its own results if it can't tell them apart.
 
 ## Try it
+
+It isn't on crates.io yet, so install from source:
 
 ```bash
 cargo install --locked kani-verifier && cargo-kani setup   # the verification engine
 git clone https://github.com/ss1738/cargo-vouch && cargo install --path cargo-vouch/cli
-cargo-vouch src/                                              # your whole crate, or one file
+cargo-vouch src/                                            # a file, or a whole directory
 ```
 
 ```console
@@ -85,69 +70,6 @@ $ cargo-vouch find_max.rs
      reachable with input(s), in order: 0 (usize → empty vector)
 ```
 
-Zero annotations. Paste the function, get a verdict. It exits non-zero on a real bug, so it
-drops into CI.
+No annotations. Paste the function, get a verdict. It exits non-zero on a real bug, so it works as a CI gate.
 
-## Bonus: two functions that look identical, one panics
-
-After the corpus run I threw two dot-products at it — the kind of thing an AI emits
-without thinking about length:
-
-```rust
-fn dot_zip(a: &[i32], b: &[i32]) -> i32 {           // 🟡 UNGUARDED (overflow only)
-    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
-}
-fn dot_index(a: Vec<i32>, b: Vec<i32>) -> i32 {     // 🔴 BUG
-    let mut s = 0;
-    for i in 0..a.len() { s += a[i] * b[i]; }        // b[i] panics if a is longer
-    s
-}
-```
-
-`dot_zip` is safe — `zip` stops at the shorter slice. `dot_index` panics the moment
-the lengths differ, and `cargo-vouch` prints the exact witness:
-
-```console
-🔴 BUG  `dot_index` — index out of bounds: the length is less than or equal to the given index
-     reachable with input(s), in order: 1 (usize → 1-element vector), -1, 0 (usize → empty vector)
-```
-
-`a = [-1], b = []`. Every hand-written test I'd write passes them the same length and
-sees nothing. The proof doesn't.
-
-## Aside: I pointed it at itself
-
-The scary failure mode for a verifier isn't missing a bug — it's *claiming a bug that
-isn't there*, or worse, silently passing everything. So I generated a fresh batch of AI
-functions it had never seen (slices, tuples, `Option`) and read every surprising verdict.
-It caught **two false verdicts in its own classifier**:
-
-- `factorial(n) = (1..=n).product()` was flagged 🔴 BUG — but the failure was Kani's
-  *unwinding assertion* (the loop needs ~1000 iterations, more than the unwind bound), not
-  a panic. Fixed: that's now ⏱️ INCONCLUSIVE ("raise `--unwind`"), and at `--unwind 15` it
-  finds the *real* bug — `factorial(13)` overflows i32.
-- `Option<i32>` payloads weren't range-clamped in "realistic" mode, so
-  `opt.map(|x| x + 1)` overflowing at `Some(i32::MAX)` read as 🔴 BUG instead of 🟡
-  UNGUARDED. Fixed — and verified the clamp still lets a genuine `.unwrap()`-on-`None`
-  surface as a real BUG.
-
-A verifier you can't trust is worse than none. `cargo-vouch --selftest` runs a known-bug
-and known-safe function and refuses to vouch for its results if it can't tell them apart.
-
-## The point
-
-Tests are probabilistic; proofs aren't. As more code comes from models that are confidently
-wrong about their own edge cases, "the tests pass" stops being enough. **Prove, don't pray.**
-
-`cargo-vouch` is MIT-licensed and open source. It's v0 — narrow *on purpose*: safe Rust,
-panic-freedom + overflow, bounded inputs, and **loop-light functions** (the bug is in the
-arithmetic/indexing/`unwrap`, not behind a data-dependent loop — a real run on the `roman`
-and `levenshtein` crates returned INCONCLUSIVE on all 6, see `REAL_WORLD_VALIDATION.md`).
-Within that niche it takes a wide range of params — scalars, `Vec<T>`/slices/tuples,
-`Option<T>`, `&str`/`String`, and same-file structs & enums (all recursively). It stands on
-[Kani](https://github.com/model-checking/kani); the new part is the zero-annotation,
-AI-aware harness generator, the BUG/UNGUARDED/INCONCLUSIVE classifier that never fakes a
-pass, `--prove` for postconditions, and parallel batch mode for CI.
-
-*Repo: github.com/ss1738/cargo-vouch · reproduce every number above with the corpora in
-`/corpus*`.*
+MIT licensed. Repo: github.com/ss1738/cargo-vouch. There is also an experimental agent in `agent/` that has an LLM write a function, checks it with cargo-vouch, and feeds the counterexample back until it verifies.
