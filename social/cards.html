@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cargo-vouch — social cards</title>
+<style>
+  :root{
+    --ground:#F4F5F3; --panel:#FBFCFA; --ink:#15191B; --muted:#5B6560;
+    --accent:#17795A; --accent-soft:#E4EEE9; --line:#E1E4DF;
+    --term:#0C1210; --term-line:#18211D; --cmd:#C9D1CE; --dim:#6C7A74;
+    --red:#FF6B66; --amber:#F2B23C; --green:#34D399;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#E9EBE7;color:var(--ink);font-family:var(--sans);
+       padding:32px;display:flex;flex-direction:column;align-items:center;gap:40px}
+  .note{max-width:1280px;width:100%;font-size:14px;color:#4a534e;line-height:1.6}
+  .note code{font-family:var(--mono);background:#dfe2dd;padding:1px 5px;border-radius:4px}
+  .cap{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+       color:#6b746f;margin:2px 0 8px}
+
+  /* ---- shared card shell ---- */
+  .card{background:var(--ground);color:var(--ink);position:relative;overflow:hidden;
+        box-shadow:0 1px 0 var(--line);border:1px solid var(--line)}
+  .card .pad{position:absolute;inset:0;display:flex;flex-direction:column}
+
+  .brandrow{display:flex;align-items:center;gap:14px}
+  .seal{display:inline-flex;align-items:center;justify-content:center;
+        background:var(--accent);color:#fff;border-radius:8px;font-weight:700;
+        font-family:var(--mono);line-height:1}
+  .wordmark{font-family:var(--mono);font-weight:700;letter-spacing:-.01em;color:var(--ink)}
+  .wordmark b{color:var(--accent);font-weight:700}
+  .tagline{font-family:var(--sans);color:var(--ink);font-weight:600;line-height:1.15;
+           text-wrap:balance}
+  .sub{color:var(--muted);font-family:var(--sans);line-height:1.45}
+
+  /* terminal */
+  .term{background:var(--term);border-radius:12px;overflow:hidden;
+        box-shadow:0 18px 40px -18px rgba(12,18,16,.55);border:1px solid #05100c;
+        display:flex;flex-direction:column}
+  .term .bar{display:flex;align-items:center;gap:8px;padding:0 16px;
+             border-bottom:1px solid var(--term-line);color:var(--dim);
+             font-family:var(--mono)}
+  .term .bar .dot{width:11px;height:11px;border-radius:50%}
+  .term .bar .t{margin-left:8px}
+  .term .body{font-family:var(--mono);color:var(--cmd);
+              font-variant-numeric:tabular-nums;line-height:1.55;flex:1;
+              display:flex;flex-direction:column;justify-content:center;gap:.55em}
+  .term .body .prompt{color:#8FA69C}
+  /* verdict rows as a grid so columns align and never clip */
+  .term .tg{display:grid;grid-template-columns:max-content max-content 1fr max-content;
+            gap:.5em 1.15em;align-items:baseline}
+  .term .tg span{white-space:nowrap}
+  .term .tg .wit{justify-self:end}
+  .term .r{color:var(--red)}   .term .a{color:var(--amber)}
+  .term .g{color:var(--green)} .term .m{color:var(--dim)}
+  .term .two{display:flex;flex-direction:column;gap:.5em}
+  .term .two .ln{white-space:nowrap}
+
+  .foot{display:flex;align-items:center;justify-content:space-between;
+        font-family:var(--mono);color:var(--muted)}
+  .foot .repo{color:var(--ink)} .foot .repo b{color:var(--accent)}
+  .pill{font-family:var(--mono);border:1px solid var(--line);border-radius:999px;
+        color:var(--muted);background:var(--panel)}
+
+  /* ============ CARD 1 — GitHub social 1280×640 ============ */
+  #gh{width:1280px;height:640px}
+  #gh .pad{padding:64px 72px}
+  #gh .brandrow{margin-bottom:auto}
+  #gh .seal{width:52px;height:52px;font-size:30px;border-radius:12px}
+  #gh .wordmark{font-size:40px}
+  #gh .tagline{font-size:40px;margin:26px 0 0;max-width:560px}
+  #gh .sub{font-size:19px;margin-top:14px;max-width:520px}
+  #gh .split{display:flex;gap:56px;align-items:flex-end;flex:1;min-height:0}
+  #gh .left{display:flex;flex-direction:column;flex:1;min-width:0;padding-bottom:6px}
+  #gh .term{width:600px;height:300px;margin-bottom:6px}
+  #gh .term .bar{height:40px} #gh .term .bar{font-size:13px}
+  #gh .term .body{padding:22px 26px;font-size:17px}
+  #gh .foot{margin-top:34px;font-size:16px}
+  #gh .pill{padding:6px 14px;font-size:13px}
+
+  /* ============ CARD 2 — LinkedIn / link preview 1200×627 ============ */
+  #li{width:1200px;height:627px}
+  #li .pad{padding:60px 68px}
+  #li .brandrow{margin-bottom:auto}
+  #li .seal{width:48px;height:48px;font-size:28px;border-radius:11px}
+  #li .wordmark{font-size:36px}
+  #li .tagline{font-size:46px;margin:0;max-width:640px}
+  #li .sub{font-size:20px;margin-top:16px;max-width:600px}
+  #li .term{width:100%;height:190px;margin-top:30px}
+  #li .term .bar{height:38px;font-size:13px}
+  #li .term .body{padding:16px 26px;font-size:16.5px;justify-content:center}
+  #li .foot{margin-top:26px;font-size:16px}
+  #li .pill{padding:6px 14px;font-size:13px}
+
+  /* ============ CARD 3 — Square 1080×1080 ============ */
+  #sq{width:1080px;height:1080px}
+  #sq .pad{padding:84px 84px}
+  #sq .brandrow{margin-bottom:26px}
+  #sq .seal{width:60px;height:60px;font-size:36px;border-radius:14px}
+  #sq .wordmark{font-size:46px}
+  #sq .tagline{font-size:62px;margin:8px 0 0;max-width:820px;line-height:1.08}
+  #sq .sub{font-size:26px;margin-top:22px;max-width:760px}
+  #sq .term{width:100%;height:360px;margin-top:auto}
+  #sq .term .bar{height:46px;font-size:16px}
+  #sq .term .body{padding:30px 36px;font-size:24px}
+  #sq .foot{margin-top:40px;font-size:22px}
+  #sq .pill{padding:8px 18px;font-size:17px}
+</style>
+</head>
+<body>
+
+  <div class="note">
+    <strong>How to use:</strong> screenshot each card at 1× (the card is already the exact
+    pixel size for its platform). On macOS, <code>⇧⌘4</code> then space, click the card.
+    Card 1 → GitHub “Social preview” (Settings → General). Card 2 → LinkedIn / X link post.
+    Card 3 → a square post. Emoji verdicts render in color on macOS.
+  </div>
+
+  <!-- ===================== CARD 1 : GitHub 1280×640 ===================== -->
+  <div>
+    <div class="cap">github social preview · 1280 × 640</div>
+    <div class="card" id="gh">
+      <div class="pad">
+        <div class="brandrow">
+          <span class="seal">✓</span>
+          <span class="wordmark">cargo&#8209;<b>vouch</b></span>
+        </div>
+        <div class="split">
+          <div class="left">
+            <div class="tagline">Prove a Rust function can’t panic.</div>
+            <div class="sub">Zero annotations. It auto-generates a Kani proof
+              harness for every function and gives you a verdict with the exact
+              input that breaks it.</div>
+            <div class="foot">
+              <span class="repo">github.com/ss1738/<b>cargo-vouch</b></span>
+              <span class="pill">built on Kani · MIT</span>
+            </div>
+          </div>
+          <div class="term">
+            <div class="bar"><span class="dot" style="background:#FF5F56"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span><span class="t">cargo vouch</span></div>
+            <div class="body">
+            <span class="prompt">$ cargo vouch stats.rs</span>
+            <div class="tg">
+              <span class="r">🔴 BUG</span><span>mean</span><span class="m">divide by zero</span><span class="m wit">← []</span>
+              <span class="a">🟡 UNGUARDED</span><span>total</span><span class="m">i32 overflow</span><span class="m wit">← [i32::MAX]</span>
+              <span class="g">✅ VERIFIED</span><span>clamp_page</span><span class="m">panic-free</span><span class="wit"></span>
+            </div>
+          </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CARD 2 : LinkedIn 1200×627 ===================== -->
+  <div>
+    <div class="cap">linkedin / x link preview · 1200 × 627</div>
+    <div class="card" id="li">
+      <div class="pad">
+        <div class="brandrow">
+          <span class="seal">✓</span>
+          <span class="wordmark">cargo&#8209;<b>vouch</b></span>
+        </div>
+        <div class="tagline">It proves your Rust can’t panic. Not tests — proofs.</div>
+        <div class="sub">Point it at a function. It checks every input in bounds and
+          reports BUG, UNGUARDED, or VERIFIED, with the value that triggers the bug.</div>
+        <div class="term">
+          <div class="bar"><span class="dot" style="background:#FF5F56"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span><span class="t">cargo vouch</span></div>
+          <div class="body">
+            <span class="prompt">$ cargo vouch find_max.rs</span>
+            <div class="two">
+              <span class="ln"><span class="r">🔴 BUG</span>&nbsp;&nbsp;find_max — <span class="m">called `Option::unwrap()` on a `None` value</span></span>
+              <span class="ln m">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;reachable with input: 0  (usize → empty vector)</span>
+            </div>
+          </div>
+        </div>
+        <div class="foot">
+          <span class="repo">github.com/ss1738/<b>cargo-vouch</b></span>
+          <span class="pill">zero annotations · exits non-zero on a real bug</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== CARD 3 : Square 1080×1080 ===================== -->
+  <div>
+    <div class="cap">square post · 1080 × 1080</div>
+    <div class="card" id="sq">
+      <div class="pad">
+        <div class="brandrow">
+          <span class="seal">✓</span>
+          <span class="wordmark">cargo&#8209;<b>vouch</b></span>
+        </div>
+        <div class="tagline">Prove a Rust function can’t panic.</div>
+        <div class="sub">No annotations, no test cases to write. It generates the proof
+          harness, runs bounded model checking, and hands back a verdict with a
+          counterexample. It never reports a pass it can’t back up.</div>
+        <div class="term">
+          <div class="bar"><span class="dot" style="background:#FF5F56"></span><span class="dot" style="background:#FEBC2E"></span><span class="dot" style="background:#28C840"></span><span class="t">cargo vouch</span></div>
+          <div class="body">
+            <span class="prompt">$ cargo vouch stats.rs</span>
+            <div class="tg">
+              <span class="r">🔴 BUG</span><span>mean</span><span class="m">divide by zero</span><span class="m wit">← []</span>
+              <span class="a">🟡 UNGUARDED</span><span>total</span><span class="m">i32 overflow</span><span class="m wit">← [i32::MAX]</span>
+              <span class="g">✅ VERIFIED</span><span>clamp_page</span><span class="m">panic-free</span><span class="wit"></span>
+            </div>
+          </div>
+        </div>
+        <div class="foot">
+          <span class="repo">github.com/ss1738/<b>cargo-vouch</b></span>
+          <span class="pill">built on Kani</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
