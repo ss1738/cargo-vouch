@@ -61,6 +61,28 @@ sibling. But the underlying truth stands and is worth stating plainly: **BMC is 
 on some iterator patterns.** cargo-aiv is honest about it — a function it can't finish
 proving is ⏱️ INCONCLUSIVE ("raise `--unwind`/wait", *not* a pass), never a false ✅.
 
+## The loop closes: find → fix → *prove fixed*
+
+The point of a verifier isn't just to complain — it's to tell you when you're done. I took
+the pagination bugs, added exactly the guards the report asked for, and re-ran
+(`dogfood/pagination_fixed.rs`):
+
+```rust
+fn page_count(total: i32, per_page: i32) -> i32 {
+    if per_page <= 0 { return 0; }                    // guard the divide-by-zero
+    total.saturating_add(per_page - 1) / per_page     // and the overflow
+}
+fn offset(page: i32, per_page: i32) -> i32 { page.saturating_mul(per_page) }
+```
+
+```console
+$ cargo-aiv dogfood/pagination_fixed.rs
+✅ VERIFIED  page_count   ✅ VERIFIED  offset   ✅ VERIFIED  clamp_page    # exit 0
+```
+
+🔴 BUG → guard added → ✅ VERIFIED. Not "the new tests pass" — *proven* panic-free for every
+input in bounds. That's the difference from a test suite: it can tell you the bug is gone.
+
 ## Bottom line
 
 Across 14 functions of realistic code, cargo-aiv found **five reachable panics that
