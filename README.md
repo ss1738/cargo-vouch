@@ -16,7 +16,7 @@ came back INCONCLUSIVE on all 6 functions; see
 [`REAL_WORLD_VALIDATION.md`](REAL_WORLD_VALIDATION.md). Point it at loop-light code, not at
 your parser.
 
-![Verification time by function shape: struct and scalar math about 1s, strings about 33s, iterator .max().unwrap() 116s, and real-crate loops time out to INCONCLUSIVE (6 of 6)](social/charts/speed-by-shape.png)
+![Verification time by function shape: struct and scalar math about 1s, strings about 33s, iterator .max().unwrap() 116s, and real-crate loops time out to INCONCLUSIVE (6 of 6)](https://github.com/ss1738/cargo-vouch/raw/HEAD/social/charts/speed-by-shape.png)
 
 ```console
 $ cargo-vouch sum_vec.rs
@@ -28,7 +28,7 @@ $ cargo-vouch sum_vec.rs
 That function was written by an AI that called it correct, and `cargo test` passes. Kani
 proves it overflows on `[i32::MAX, 1]`. That is the difference between a test and a proof.
 
-![GPT-4o graded its own 11 Rust functions and was wrong 4 times: it called three overflowing functions correct and one safe function buggy, and the proof caught all four](social/charts/ai-self-grading.png)
+![GPT-4o graded its own 11 Rust functions and was wrong 4 times: it called three overflowing functions correct and one safe function buggy, and the proof caught all four](https://github.com/ss1738/cargo-vouch/raw/HEAD/social/charts/ai-self-grading.png)
 
 It also proves postconditions (`--prove 'result >= 0'`), gates a whole directory in parallel
 (`cargo-vouch src/`, exit 1 on any bug), speaks `--json` for CI, and runs `--selftest` so it
@@ -37,7 +37,7 @@ never vouches for results it can't actually check.
 Run on 14 functions of ordinary utility code, it found five reachable panics that `cargo test`
 would ship (divide-by-zeros, empty-slice unwraps). See [`RESULTS.md`](RESULTS.md).
 
-![Verdicts over 14 ordinary functions: 5 BUG, 8 UNGUARDED (overflow only at extremes), and 1 VERIFIED, every one measured under Kani](social/charts/verdict-distribution.png)
+![Verdicts over 14 ordinary functions: 5 BUG, 8 UNGUARDED (overflow only at extremes), and 1 VERIFIED, every one measured under Kani](https://github.com/ss1738/cargo-vouch/raw/HEAD/social/charts/verdict-distribution.png)
 
 ## What to point it at
 
