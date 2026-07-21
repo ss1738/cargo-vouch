@@ -1,6 +1,6 @@
 [package]
 name = "cargo-vouch"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Prove a loop-light Rust function is panic-free, with no annotations. Auto-generates a Kani proof harness for every function in a file and reports BUG / UNGUARDED / VERIFIED / INCONCLUSIVE with a concrete counterexample. A DX layer over Kani/CBMC."
 license = "MIT"

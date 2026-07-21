@@ -3,6 +3,14 @@
 All notable changes to `cargo-vouch`. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is SemVer.
 
+## [0.4.1]
+
+### Changed
+- **Cleaner CLI output.** Removed em-dashes from every verdict and message line (BUG /
+  UNGUARDED / VERIFIED / INCONCLUSIVE, self-test, --prove). Terminal output now reads with
+  plain spacing and colons, which is the norm for CLI tools and copies/screenshots cleanly.
+  No behaviour change; all 40 tests green.
+
 ## [0.4.0]
 
 ### Added
