@@ -1,4 +1,4 @@
-# vouch-agent — write a Rust function, then *prove* it panic-free
+# vouch-agent, write a Rust function, then *prove* it panic-free
 
 A dev agent that closes the loop around cargo-vouch:
 
@@ -8,7 +8,7 @@ spec ─▶ Claude writes a Rust fn ─▶ cargo-vouch (Kani BMC) ─▶ 🔴/�
                                                           ─▶ ✅ VERIFIED → done
 ```
 
-The point: an LLM confidently calls its own code "correct" — cargo-vouch's whole
+The point: an LLM confidently calls its own code "correct", cargo-vouch's whole
 premise is that you shouldn't believe it. This agent makes an **independent
 bounded model checker** the oracle. On a 🔴 BUG it feeds the *concrete
 counterexample* ("reachable with input(s): empty vector" / "divide by zero at
@@ -53,7 +53,7 @@ generated:
 |---|---|
 | `--max-iters N` | repair rounds before giving up (default 4) |
 | `--model ID` | Claude model (default `claude-opus-4-8`) |
-| `--fail-on bug\|unguarded\|inconclusive` | which verdicts to treat as failures to repair (default `bug` — extreme-only overflows pass) |
+| `--fail-on bug\|unguarded\|inconclusive` | which verdicts to treat as failures to repair (default `bug`, extreme-only overflows pass) |
 | `--bound/--unwind/--str-bound/--str-unwind N` | passed through to cargo-vouch |
 | `--out PATH` | write the final proven function to a file |
 | `--cargo-vouch PATH` | explicit cargo-vouch binary |
@@ -63,7 +63,6 @@ Exit code `0` = proven, `1` = gave up unproven, `2` = setup/API error.
 ## Scope
 
 The agent inherits cargo-vouch's niche: it's told to write **loop-light** functions
-over supported param types. It shines on the class of code cargo-vouch verifies —
-arithmetic, indexing, `unwrap`/empty-collection safety — and honestly reports
+over supported param types. It shines on the class of code cargo-vouch verifies (arithmetic, indexing, `unwrap`/empty-collection safety), and honestly reports
 INCONCLUSIVE (with a rewrite nudge) when a spec drags it into data-dependent
 loops. See `../REAL_WORLD_VALIDATION.md`.
