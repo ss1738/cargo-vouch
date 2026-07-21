@@ -32,11 +32,43 @@ use std::sync::atomic::{AtomicU32, AtomicU8, AtomicUsize, Ordering};
 // it defines the strict-vs-realistic split that the UNGUARDED classification rests on.
 static BOUND_A: AtomicUsize = AtomicUsize::new(3);
 static UNWIND_A: AtomicU32 = AtomicU32::new(5);
+// Symbolic strings are ~10x more expensive under BMC than Vec/int params (UTF-8
+// decode + Unicode tables), so they get their OWN bound, defaulted low and
+// decoupled from --bound. Length ≤1 still covers the empty-string case — where
+// nearly every string panic lives (.unwrap()/.parse()/indexing) — and solves fast;
+// at the shared Vec bound (3) even a trivial string bug times out to INCONCLUSIVE.
+static STR_BOUND_A: AtomicUsize = AtomicUsize::new(1);
+// Measured: string cost under BMC is dominated by the UNWIND depth (UTF-8 decode +
+// from_utf8 validation loops), not the length. At the default unwind of 5 even a
+// one-char symbolic string times out; at unwind 2 the same harness resolves in ~30s.
+// So string-bearing harnesses get their own low unwind, decoupled from --unwind.
+// A too-low unwind can only yield INCONCLUSIVE (unwinding assertion), never a false
+// pass — so this is safe: it trades some string-loop depth for a usable default.
+static STR_UNWIND_A: AtomicU32 = AtomicU32::new(2);
 fn bound() -> usize {
     BOUND_A.load(Ordering::Relaxed)
 }
+fn str_bound() -> usize {
+    STR_BOUND_A.load(Ordering::Relaxed)
+}
 fn unwind() -> u32 {
     UNWIND_A.load(Ordering::Relaxed)
+}
+fn str_unwind() -> u32 {
+    STR_UNWIND_A.load(Ordering::Relaxed)
+}
+
+/// True if this param type binds a symbolic string (`&str` or `String`) — such a
+/// harness uses the lower `str_unwind()` instead of `unwind()`.
+fn is_string_type(ty: &syn::Type) -> bool {
+    if let syn::Type::Reference(r) = ty {
+        if let syn::Type::Path(tp) = &*r.elem {
+            if tp.path.is_ident("str") {
+                return true;
+            }
+        }
+    }
+    matches!(path_head(ty), Some((b, a)) if b == "String" && a.is_empty())
 }
 
 // CI rigor dial (--fail-on): 0 = BUG only (default), 1 = + UNGUARDED, 2 = + INCONCLUSIVE.
@@ -145,7 +177,8 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
     if let syn::Type::Reference(r) = ty {
         if let syn::Type::Path(tp) = &*r.elem {
             if tp.path.is_ident("str") {
-                let line = format!("    let {name}: String = any_bounded_string({});", bound());
+                let line =
+                    format!("    let {name}: String = any_bounded_string({});", str_bound());
                 return Some((line, format!("&{name}")));
             }
         }
@@ -204,7 +237,7 @@ fn map_input(name: &str, ty: &syn::Type, realistic: bool) -> Option<(String, Str
     let (base, args) = path_head(ty)?;
     match (base.as_str(), args.as_slice()) {
         ("String", []) => {
-            let line = format!("    let {name}: String = any_bounded_string({});", bound());
+            let line = format!("    let {name}: String = any_bounded_string({});", str_bound());
             Some((line, name.to_string()))
         }
         ("Vec", [inner]) => {
@@ -241,6 +274,7 @@ fn harness_for(
     let name = func.sig.ident.to_string();
     let mut inputs = Vec::new();
     let mut args = Vec::new();
+    let mut stringy = false;
     for arg in &func.sig.inputs {
         match arg {
             syn::FnArg::Typed(pt) => {
@@ -248,6 +282,7 @@ fn harness_for(
                     syn::Pat::Ident(pi) => pi.ident.to_string(),
                     _ => return Err(format!("unsupported parameter pattern in `{name}`")),
                 };
+                stringy |= is_string_type(&pt.ty);
                 let (line, arg_expr) = map_input(&pname, &pt.ty, realistic).ok_or_else(|| {
                     format!("`{name}` param `{pname}: {}` unsupported (v0: scalar ints, Vec<int>, Option<int>, &[int], &str/String, tuples)", quote!(#pt))
                 })?;
@@ -264,7 +299,9 @@ fn harness_for(
         ),
         None => format!("    let _ = {name}({call});"),
     };
-    let uw = unwind();
+    // String harnesses use the lower str_unwind() — measured necessary for strings
+    // to resolve at all; a shortfall only ever yields INCONCLUSIVE, never a false pass.
+    let uw = if stringy { str_unwind() } else { unwind() };
     Ok(format!(
         "#[kani::proof]\n#[kani::unwind({uw})]\nfn verify_{name}() {{\n{}\n{}\n}}",
         inputs.join("\n"),
@@ -418,13 +455,8 @@ fn run_kani(
             res.insert(cur.clone(), (false, Vec::new()));
         } else if !cur.is_empty() && ln.contains("Failed Checks:") {
             if let Some(e) = res.get_mut(&cur) {
-                e.1.push(
-                    ln.split("Failed Checks:")
-                        .nth(1)
-                        .unwrap_or("")
-                        .trim()
-                        .to_string(),
-                );
+                let msg = ln.split("Failed Checks:").nth(1).unwrap_or("").trim();
+                e.1.push(humanize_check(msg));
             }
         } else if !cur.is_empty() && ln.contains("VERIFICATION:-") {
             if let Some(e) = res.get_mut(&cur) {
@@ -583,14 +615,20 @@ mod tests {
 
     #[test]
     fn str_and_string_params_supported() {
-        // &str binds a bounded symbolic ASCII String, passed by reference (coerces to &str).
+        // &str binds a bounded symbolic ASCII String (its OWN default bound of 1,
+        // decoupled from the Vec --bound of 3), passed by reference (coerces to &str).
         let (_, lib) = build("fn f(s: &str) -> usize { s.len() }", false, None).unwrap();
-        assert!(lib.contains("let s: String = any_bounded_string(3);"));
+        assert!(lib.contains("let s: String = any_bounded_string(1);"));
         assert!(lib.contains("let _ = f(&s);"));
+        // A string harness uses the lower str_unwind (2), not the default unwind (5).
+        assert!(lib.contains("#[kani::unwind(2)]"));
         // Owned String binds the same symbolic value, passed by move.
         let (_, lib2) = build("fn g(s: String) -> usize { s.len() }", false, None).unwrap();
-        assert!(lib2.contains("let s: String = any_bounded_string(3);"));
+        assert!(lib2.contains("let s: String = any_bounded_string(1);"));
         assert!(lib2.contains("let _ = g(s);"));
+        // A non-string harness keeps the default unwind (5) — decoupling is scoped.
+        let (_, num) = build("fn n(x: i32) -> i32 { x }", false, None).unwrap();
+        assert!(num.contains("#[kani::unwind(5)]"));
     }
 
     #[test]
@@ -681,6 +719,25 @@ mod tests {
         FAIL_ON.store(2, Ordering::Relaxed); // + inconclusive
         assert!(fails(&bug) && fails(&ung) && fails(&inc) && !fails(&ver));
         FAIL_ON.store(0, Ordering::Relaxed); // reset for other tests
+    }
+
+    #[test]
+    fn humanize_check_rewrites_kani_placeholder() {
+        use super::humanize_check;
+        // Kani's runtime-format placeholder becomes a readable panic description.
+        let placeholder = "This is a placeholder message; Kani doesn't support message formatted at runtime";
+        assert!(humanize_check(placeholder).contains("reachable panic"));
+        assert!(!humanize_check(placeholder).contains("placeholder"));
+        // Any other check text is passed through verbatim (trimmed).
+        assert_eq!(
+            humanize_check("  attempt to divide by zero  "),
+            "attempt to divide by zero"
+        );
+        // Must NOT touch the unwinding-assertion marker real_failures() filters on.
+        assert_eq!(
+            humanize_check("unwinding assertion loop 0"),
+            "unwinding assertion loop 0"
+        );
     }
 
     #[test]
@@ -832,6 +889,21 @@ fn emit_json(results: &[(&str, &Verdict)]) {
         "{{\"results\":[{}],\"summary\":{{\"bug\":{bugs},\"unguarded\":{ung},\"verified\":{ver},\"other\":{other}}}}}",
         items.join(",")
     );
+}
+
+/// Rewrite Kani's opaque check descriptions into something a developer reads at a
+/// glance. Kani emits a fixed placeholder for any panic whose message is built at
+/// runtime (the common `.unwrap()`/`.expect()` on `Err`/`None`, or `panic!("{}", x)`),
+/// because it can't evaluate the format string statically. Left raw, the BUG line
+/// reads "This is a placeholder message; Kani doesn't support message formatted at
+/// runtime" — accurate but useless. Any other check text passes through unchanged.
+fn humanize_check(msg: &str) -> String {
+    let m = msg.trim();
+    if m.contains("placeholder message") || m.contains("message formatted at runtime") {
+        return "reachable panic — unwrap/expect on Err/None, or a runtime-formatted panic!()"
+            .to_string();
+    }
+    m.to_string()
 }
 
 /// Keep only genuine panic/overflow checks. An "unwinding assertion" failure is NOT
@@ -1130,7 +1202,9 @@ USAGE:
 
 OPTIONS:
     --bound N          max Vec/slice length to check (default 3)
+    --str-bound N      max &str/String length to check (default 1 — strings are costly)
     --unwind N         loop unroll depth (default 5)
+    --str-unwind N     loop unroll depth for string harnesses (default 2 — strings are costly)
     --fail-on <level>  which verdicts exit non-zero: bug (default) | unguarded | inconclusive
 
 VERDICTS:
@@ -1179,6 +1253,20 @@ Docs: https://github.com/ss1738/cargo-aiv
             }
         }
     }
+    // --str-bound N overrides the (decoupled, low-by-default) symbolic string length.
+    // Allows 0 (empty string only — the fastest, highest-value case).
+    if let Some(i) = args.iter().position(|a| a == "--str-bound") {
+        match args.get(i + 1).and_then(|s| s.parse::<usize>().ok()) {
+            Some(v) => {
+                STR_BOUND_A.store(v, Ordering::Relaxed);
+                args.drain(i..=i + 1);
+            }
+            _ => {
+                eprintln!("--str-bound needs a non-negative integer");
+                std::process::exit(2);
+            }
+        }
+    }
     if let Some(i) = args.iter().position(|a| a == "--unwind") {
         match args.get(i + 1).and_then(|s| s.parse::<u32>().ok()) {
             Some(v) if v >= 1 => {
@@ -1187,6 +1275,20 @@ Docs: https://github.com/ss1738/cargo-aiv
             }
             _ => {
                 eprintln!("--unwind needs a positive integer");
+                std::process::exit(2);
+            }
+        }
+    }
+    // --str-unwind N overrides the (decoupled, low-by-default) unwind for harnesses
+    // with a string param — raise it if a string function has real internal loops.
+    if let Some(i) = args.iter().position(|a| a == "--str-unwind") {
+        match args.get(i + 1).and_then(|s| s.parse::<u32>().ok()) {
+            Some(v) if v >= 1 => {
+                STR_UNWIND_A.store(v, Ordering::Relaxed);
+                args.drain(i..=i + 1);
+            }
+            _ => {
+                eprintln!("--str-unwind needs a positive integer");
                 std::process::exit(2);
             }
         }
