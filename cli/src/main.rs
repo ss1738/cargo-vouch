@@ -306,23 +306,34 @@ fn map_input(
             let line = format!("    let {name}: String = any_bounded_string({});", str_bound());
             Some((line, name.to_string()))
         }
-        ("Vec", [inner]) => {
-            let et = scalar_int(inner)?;
-            Some((vec_binding(name, &et, realistic, false), name.to_string()))
-        }
+        ("Vec", [inner]) => match scalar_int(inner) {
+            // Scalar elements: the cheap `any_bounded_vec` helper.
+            Some(et) => Some((vec_binding(name, &et, realistic, false), name.to_string())),
+            // Non-scalar (struct/string/tuple/enum) elements: unroll synthesized elems.
+            None => synth_vec(name, inner, realistic, types),
+        },
         ("Option", [inner]) => {
-            let et = scalar_int(inner)?;
-            let tystr = quote!(#ty).to_string().replace(' ', "");
-            let mut line = format!("    let {name}: {tystr} = kani::any();");
-            // Clamp the Some(_) payload in realistic mode too — otherwise an Option
-            // overflow at i32::MAX is misreported as BUG instead of UNGUARDED.
-            if realistic && et.starts_with('i') {
-                line += &format!(
-                    "\n    if let Some(v) = {name} {{ kani::assume(v >= -{RANGE} && v <= {RANGE}); }}"
-                );
-            } else if realistic && et.starts_with('u') {
-                line += &format!("\n    if let Some(v) = {name} {{ kani::assume(v <= {RANGE}); }}");
+            if let Some(et) = scalar_int(inner) {
+                // Scalar payload: `kani::any()` with an inline realistic clamp so an
+                // overflow at i32::MAX reads as UNGUARDED, not BUG.
+                let tystr = quote!(#ty).to_string().replace(' ', "");
+                let mut line = format!("    let {name}: {tystr} = kani::any();");
+                if realistic && et.starts_with('i') {
+                    line += &format!(
+                        "\n    if let Some(v) = {name} {{ kani::assume(v >= -{RANGE} && v <= {RANGE}); }}"
+                    );
+                } else if realistic && et.starts_with('u') {
+                    line += &format!("\n    if let Some(v) = {name} {{ kani::assume(v <= {RANGE}); }}");
+                }
+                return Some((line, name.to_string()));
             }
+            // Non-scalar payload (String/struct/tuple/enum): None | Some(synth).
+            let ity = quote!(#inner).to_string().replace(' ', "");
+            let payload = format!("{name}_some");
+            let bind = bind_owned(&payload, inner, realistic, types)?;
+            let line = format!(
+                "    let {name}_none: bool = kani::any();\n    let {name}: Option<{ity}> = if {name}_none {{ None }} else {{ {bind} Some({payload}) }};"
+            );
             Some((line, name.to_string()))
         }
         // A same-file struct or enum: synthesize it. Structs win if a name is both
@@ -432,6 +443,45 @@ fn synth_struct(
     }
 }
 
+/// Bind a symbolic OWNED value of `ty` into `local`, flattened onto a single line
+/// (safe to drop inside an `if`/`else`/match-arm block). None if `ty` is unsupported
+/// or by-reference (arg ≠ the local — e.g. a `&[T]` field, which we can't own here).
+fn bind_owned(local: &str, ty: &syn::Type, realistic: bool, types: &Types) -> Option<String> {
+    let (line, arg) = map_input(local, ty, realistic, types)?;
+    if arg.as_str() != local {
+        return None;
+    }
+    Some(
+        line.replace('\n', " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+/// Synthesize a bounded symbolic `Vec<inner>` for a NON-scalar element type (struct,
+/// string, tuple, enum, …). Scalar elements use the cheaper `any_bounded_vec` helper;
+/// this path unrolls up to `bound()` element slots, each a freshly-synthesized value
+/// pushed only when the symbolic length reaches it — giving vectors of length 0..bound
+/// with arbitrary supported elements. None if the element type isn't ownable.
+fn synth_vec(name: &str, inner: &syn::Type, realistic: bool, types: &Types) -> Option<(String, String)> {
+    let ity = quote!(#inner).to_string().replace(' ', "");
+    let b = bound();
+    let mut lines = vec![
+        format!("    let {name}_len: usize = kani::any();"),
+        format!("    kani::assume({name}_len <= {b});"),
+        format!("    let mut {name}: Vec<{ity}> = Vec::new();"),
+    ];
+    for i in 0..b {
+        let elem = format!("{name}_e{i}");
+        let bind = bind_owned(&elem, inner, realistic, types)?;
+        lines.push(format!(
+            "    if {name}_len > {i} {{ {bind} {name}.push({elem}); }}"
+        ));
+    }
+    Some((lines.join("\n"), name.to_string()))
+}
+
 /// Build the constructor expression for one enum variant, binding each of its
 /// fields symbolically inside a block. None if any field is unsupported/by-ref.
 fn variant_ctor(
@@ -443,8 +493,6 @@ fn variant_ctor(
     realistic: bool,
     types: &Types,
 ) -> Option<String> {
-    // Flatten a field binding (may be multi-statement) onto one line for the arm.
-    let flat = |line: String| line.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" ");
     match fields {
         syn::Fields::Unit => Some(format!("{base}::{vname}")),
         syn::Fields::Unnamed(un) => {
@@ -452,11 +500,7 @@ fn variant_ctor(
             let mut locals = Vec::new();
             for (j, f) in un.unnamed.iter().enumerate() {
                 let local = format!("{name}_{vi}_{j}");
-                let (line, arg) = map_input(&local, &f.ty, realistic, types)?;
-                if arg != local {
-                    return None;
-                }
-                lines.push(flat(line));
+                lines.push(bind_owned(&local, &f.ty, realistic, types)?);
                 locals.push(local);
             }
             Some(format!(
@@ -471,11 +515,7 @@ fn variant_ctor(
             for f in &nm.named {
                 let fname = f.ident.as_ref()?.to_string();
                 let local = format!("{name}_{vi}_{fname}");
-                let (line, arg) = map_input(&local, &f.ty, realistic, types)?;
-                if arg != local {
-                    return None;
-                }
-                lines.push(flat(line));
+                lines.push(bind_owned(&local, &f.ty, realistic, types)?);
                 inits.push(format!("{fname}: {local}"));
             }
             Some(format!(
@@ -526,7 +566,15 @@ fn type_has_string(ty: &syn::Type, types: &Types) -> bool {
     if is_string_type(ty) {
         return true;
     }
+    // Tuple elements: (String, i32) has a string.
+    if let syn::Type::Tuple(t) = ty {
+        return t.elems.iter().any(|e| type_has_string(e, types));
+    }
     if let Some((base, args)) = path_head(ty) {
+        // Generic args: Vec<String>, Option<String>, Option<MyStructWithString>.
+        if args.iter().any(|a| type_has_string(a, types)) {
+            return true;
+        }
         if args.is_empty() {
             if let Some(fields) = types.structs.get(&base) {
                 return fields.iter().any(|f| type_has_string(&f.ty, types));
@@ -976,6 +1024,53 @@ mod tests {
         let src = "struct Marker;\nfn f(_m: Marker) -> i32 { 0 }";
         let (_, lib) = build(src, false, None).unwrap();
         assert!(lib.contains("let _m: Marker = Marker;"));
+    }
+
+    #[test]
+    fn option_of_string_is_synthesized() {
+        // Non-scalar Option payload → None | Some(synth), not kani::any().
+        let (_, lib) = build("fn f(o: Option<String>) -> usize { 0 }", false, None).unwrap();
+        assert!(lib.contains("let o_none: bool = kani::any();"));
+        assert!(lib.contains("let o: Option<String> = if o_none { None } else {"));
+        assert!(lib.contains("any_bounded_string"));
+        assert!(lib.contains("Some(o_some)"));
+    }
+
+    #[test]
+    fn option_of_scalar_keeps_the_any_fast_path() {
+        // Scalar payload must still use the cheap kani::any() path (not the synth block).
+        let (_, lib) = build("fn f(o: Option<i32>) -> i32 { 0 }", false, None).unwrap();
+        assert!(lib.contains("let o: Option<i32> = kani::any();"));
+        assert!(!lib.contains("o_none"));
+    }
+
+    #[test]
+    fn vec_of_struct_unrolls_synthesized_elements() {
+        let src = "struct P { x: i32 }\nfn f(v: Vec<P>) -> usize { v.len() }";
+        let (_, lib) = build(src, false, None).unwrap();
+        assert!(lib.contains("let v_len: usize = kani::any();"));
+        assert!(lib.contains("let mut v: Vec<P> = Vec::new();"));
+        assert!(lib.contains("if v_len > 0 {"));
+        assert!(lib.contains("v.push(v_e0);"));
+    }
+
+    #[test]
+    fn vec_of_scalar_keeps_the_helper_fast_path() {
+        let (_, lib) = build("fn f(v: Vec<i32>) -> usize { v.len() }", false, None).unwrap();
+        assert!(lib.contains("any_bounded_vec"));
+        assert!(!lib.contains("v_len"));
+    }
+
+    #[test]
+    fn type_has_string_sees_through_collections() {
+        use super::type_has_string;
+        let has = |s: &str| {
+            type_has_string(&syn::parse_str(s).unwrap(), &no_types())
+        };
+        assert!(has("Vec<String>"));
+        assert!(has("Option<String>"));
+        assert!(has("(String, i32)"));
+        assert!(!has("Vec<i32>"));
     }
 
     #[test]

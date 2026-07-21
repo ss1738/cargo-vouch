@@ -162,7 +162,9 @@ cargo-aiv path/to/function.rs
 
 **Supported:** safe Rust, every free function in a file (methods/`self` skipped),
 parameters of scalar ints (`i8..u64`, `bool`),
-`Vec<int>`, `Option<int>`, int **slices** (`&[int]`, `&mut [int]`, `&Vec<int>` — mutation
+**`Vec<T>`** and **`Option<T>`** for any supported element/payload type (`Vec<i32>`,
+`Vec<Point>`, `Option<String>`, `Option<MyStruct>` — scalar elements use a fast path,
+others are synthesized), int **slices** (`&[int]`, `&mut [int]`, `&Vec<int>` — mutation
 through `&mut` is verified too), **`&str`/`String`** (bound as a symbolic ASCII string,
 length ≤ bound), **tuples of scalar ints** (`(i32, i32)`, …), **same-file structs**
 (named, tuple, and unit — `struct P { x: i32 }`, `struct Point(i32, i32)`,
